@@ -39,14 +39,106 @@ const PROGMEM uint8_t romFont[] = {
 };
 const PROGMEM uint8_t inverter[] = { 0x7f, 0x7f, 0x7f, 0x7f, 0x7f};
 
+uint8_t running = 0;
+uint8_t prescaler = 10, prescaleCount = 0;
+uint8_t editing = 0;
+uint8_t editx = 0, edity = 0;
+const uint8_t EDIT_CURSOR_ANIM_PERIOD = 70;
+uint8_t editCursorAnim = 0;
+
+const uint8_t BUTTON_PRESS_NONE = 0;
+const uint8_t BUTTON_PRESS_A = 1;
+const uint8_t BUTTON_PRESS_AB = 2;
+const uint8_t BUTTON_PRESS_B = 4;
+const uint8_t BUTTON_PRESS_BA = 8;
+uint8_t buttonStatus = BUTTON_PRESS_NONE;
+
 uint8_t a = 0, b = 0, c = 0, pc = 0, out = 0, in = 0;
 uint8_t rom[16];
 
+const uint8_t ROM_REDRAW_NONE = 0xff;
 uint8_t statusFullRedraw = 0;
+uint8_t romIdxRedraw = ROM_REDRAW_NONE, romBitRedraw = ROM_REDRAW_NONE;
 // drawn values
 uint8_t ad = 0, bd = 0, cd = 0, pcd = 0, outd = 0, ind = 0;
+uint8_t runningd = 0, editingd = 0, buttonStatusd = 0;
+uint8_t editxd = 0, edityd = 0, editscd = 0;
 
-void drawStatus() {
+void emulateOneCycle() {
+  pc = (pc + 1) & 0xf;
+}
+
+void updateMainUI(uint8_t releasedButton) {
+  if ((editing || running) && releasedButton == BUTTON_PRESS_AB) {
+    releasedButton = BUTTON_PRESS_A;
+  }
+  switch (releasedButton) {
+    case BUTTON_PRESS_A:
+      if (editing) {
+        romIdxRedraw = edity + 8 * (editx >= 8);
+        romBitRedraw = editx % 8;
+        rom[romIdxRedraw] ^= 1 << (7 - romBitRedraw);
+      } else {
+        if (running) {
+          running = 0;
+        } else {
+          emulateOneCycle();
+        }
+      }
+      break;
+    case BUTTON_PRESS_AB:
+      running = 1;
+      prescaleCount = prescaler;
+      break;
+    case BUTTON_PRESS_B:
+      if (editing) {
+        editing = 0;
+      } else {
+        editing = 1;
+        editCursorAnim = 0;
+      }
+      break;
+    case BUTTON_PRESS_BA:
+      running = 0;
+      break;
+  }
+  if (editing) {
+    editCursorAnim++;
+    if (editCursorAnim >= EDIT_CURSOR_ANIM_PERIOD) editCursorAnim = 0;
+    
+    if (ab.justReleased(LEFT_BUTTON)) {
+      editx--;
+      if (editx < 0) editx = 15;
+    }
+    if (ab.justReleased(UP_BUTTON)) {
+      edity--;
+      if (edity < 0) edity = 7;
+    }
+    if (ab.justReleased(DOWN_BUTTON)) {
+      edity++;
+      if (edity > 7) edity = 0;
+    }
+    if (ab.justReleased(RIGHT_BUTTON)) {
+      editx++;
+      if (editx > 15) editx = 0;
+    }
+  } else {
+    if (ab.justReleased(LEFT_BUTTON)) in ^= 8;
+    if (ab.justReleased(UP_BUTTON)) in ^= 4;
+    if (ab.justReleased(DOWN_BUTTON)) in ^= 2;
+    if (ab.justReleased(RIGHT_BUTTON)) in ^= 1;
+  }
+
+  if (running) {
+    prescaleCount--;
+    if (prescaleCount == 0) {
+      prescaleCount = prescaler;
+      emulateOneCycle();
+    }
+  }
+}
+
+void drawMainUI() {
   const int LED_POS = 13;
   const int PC_Y = 0, A_Y = 10 + 8 * 0, B_Y = 10 + 8 * 1;
   const int C_Y = 10 + 8 * 2, OUT_Y = 10 + 8 * 3, IN_Y = 10 + 8 * 4 + 2;
@@ -65,12 +157,12 @@ void drawStatus() {
       sp.drawSelfMasked(LED_POS + 7 * i, IN_Y + 1, ledGraph, (b >> (3 - i)) & 1);
     }
     sp.drawSelfMasked(LED_POS, C_Y + 1, ledGraph, c & 1);
-    ab.setCursor(0, PC_Y); ab.print("PC");
+    ab.setCursor(0, PC_Y); ab.print(F("PC"));
     ab.setCursor(3, A_Y); ab.write('A');
     ab.setCursor(3, B_Y); ab.write('B');
     ab.setCursor(3, C_Y); ab.write('C');
     sp.drawSelfMasked(0, OUT_Y, outGraph, 0);
-    ab.setCursor(0, IN_Y); ab.print("IN");
+    ab.setCursor(0, IN_Y); ab.print(F("IN"));
   
     // draw ROM contents
     for (int i = 0; i < 8; i++) {
@@ -78,12 +170,12 @@ void drawStatus() {
       sp.drawSelfMasked(ROM_C1 + 1, y, romFont, i);
       sp.drawSelfMasked(ROM_C1 + 5, y, romFont, 16);
       for (int j = 0; j < 8; j++) {
-        sp.drawSelfMasked(ROM_C1 + 8 + 4 * j + 2 * (j >= 4), y, romFont, (rom[i] >> (7 - i)) & 1);
+        sp.drawSelfMasked(ROM_C1 + 8 + 4 * j + 2 * (j >= 4), y, romFont, (rom[i] >> (7 - j)) & 1);
       }
       sp.drawSelfMasked(ROM_C2 + 1, y, romFont, 8 + i);
       sp.drawSelfMasked(ROM_C2 + 5, y, romFont, 16);
       for (int j = 0; j < 8; j++) {
-        sp.drawSelfMasked(ROM_C2 + 8 + 4 * j + 2 * (j >= 4), y, romFont, (rom[8 + i] >> (7 - i)) & 1);
+        sp.drawSelfMasked(ROM_C2 + 8 + 4 * j + 2 * (j >= 4), y, romFont, (rom[8 + i] >> (7 - j)) & 1);
       }
     }
     // draw PC marker on ROM
@@ -92,6 +184,8 @@ void drawStatus() {
     // save what is drawn
     statusFullRedraw = 0;
     ad = a; bd = b; cd = c; pcd = pc; outd = out; ind = in;
+    // request button status redraw
+    buttonStatusd = ~buttonStatus;
   } else {
     // redraw what is updated
     if (pc != pcd) {
@@ -140,6 +234,63 @@ void drawStatus() {
       }
       ind = in;
     }
+    if (romIdxRedraw != ROM_REDRAW_NONE) {
+      int x = (romIdxRedraw & 8 ? ROM_C2 : ROM_C1) + 8 + 4 * romBitRedraw + 2 * (romBitRedraw >= 4);
+      int y = 1 + 7 * (romIdxRedraw % 8);
+      ab.fillRect(x, y, 3, 5, BLACK);
+      sp.drawSelfMasked(x, y, romFont, (rom[romIdxRedraw] >> (7 - romBitRedraw)) & 1);
+      romIdxRedraw = ROM_REDRAW_NONE;
+    }
+  }
+  bool editingChanged = editing != editingd;
+  if (buttonStatus != buttonStatusd || running != runningd || editingChanged) {
+    ab.fillRect(0, 57, 128, 7, BLACK);
+    if (buttonStatus & (BUTTON_PRESS_B | BUTTON_PRESS_BA)) {
+      ab.setCursor(0, 57);
+      ab.print(F("B+A:MENU"));
+    } else {
+      ab.setCursor(12, 57);
+      if (editing) {
+        ab.print(F("A:TOGGLE"));
+      } else {
+        if (running) {
+          ab.print(F("A:STOP"));
+        } else {
+          ab.print(F("A:STEP"));
+        }
+      }
+    }
+    if (buttonStatus & (BUTTON_PRESS_A | BUTTON_PRESS_AB)) {
+      ab.setCursor(64, 57);
+      if (!editing && !running) {
+        ab.print(F("A+B:RUN"));
+      }
+    } else {
+      ab.setCursor(64 + 12, 57);
+      if (editing) {
+        ab.print(F("B:BACK"));
+      } else {
+        ab.print(F("B:EDIT"));
+      }
+    }
+    runningd = running;
+    editingd = editing;
+    buttonStatusd = buttonStatus;
+  }
+  uint8_t editsc = editCursorAnim < EDIT_CURSOR_ANIM_PERIOD / 2;
+  if (editingChanged || editx != editxd || edity != edityd || editsc != editscd) {
+    int xd = (editxd & 8 ? ROM_C2 : ROM_C1) + 8 + 4 * (editxd % 8) + 2 * (editxd % 8 >= 4);
+    int yd = 1 + 7 * edityd + 5;
+    int x = (editx & 8 ? ROM_C2 : ROM_C1) + 8 + 4 * (editx % 8) + 2 * (editx % 8 >= 4);
+    int y = 1 + 7 * edity + 5;
+    ab.drawFastHLine(xd, yd, 3, BLACK);
+    if (editing && editsc) {
+      ab.drawFastHLine(x, y, 3, WHITE);
+    }
+    editingd = editing;
+    editxd = editx;
+    edityd = edity;
+    editscd = editsc;
   }
 }
 
@@ -156,13 +307,47 @@ void loop() {
     return;
   }
   ab.pollButtons();
-  if (ab.justPressed(A_BUTTON)) a++;
-  if (ab.justPressed(B_BUTTON)) b++;
-  if (ab.justPressed(LEFT_BUTTON)) pc++;
-  if (ab.justPressed(RIGHT_BUTTON)) c++;
-  if (ab.justPressed(UP_BUTTON)) out++;
-  if (ab.justPressed(DOWN_BUTTON)) in++;
+  uint8_t releasedButtonStatus = BUTTON_PRESS_NONE;
+  switch (buttonStatus) {
+    case BUTTON_PRESS_NONE:
+      if (ab.pressed(A_BUTTON)) {
+        buttonStatus = BUTTON_PRESS_A;
+      } else if (ab.pressed(B_BUTTON)) {
+        buttonStatus = BUTTON_PRESS_B;
+      }
+      break;
+    case BUTTON_PRESS_A:
+      if (ab.pressed(B_BUTTON)) {
+        buttonStatus = BUTTON_PRESS_AB;
+      } else if (ab.notPressed(A_BUTTON)) {
+        releasedButtonStatus = BUTTON_PRESS_A;
+        buttonStatus = BUTTON_PRESS_NONE;
+      }
+      break;
+    case BUTTON_PRESS_AB:
+      if (ab.notPressed(A_BUTTON | B_BUTTON)) {
+        releasedButtonStatus = BUTTON_PRESS_AB;
+        buttonStatus = BUTTON_PRESS_NONE;
+      }
+      break;
+    case BUTTON_PRESS_B:
+      if (ab.pressed(A_BUTTON)) {
+        buttonStatus = BUTTON_PRESS_BA;
+      } else if (ab.notPressed(B_BUTTON)) {
+        releasedButtonStatus = BUTTON_PRESS_B;
+        buttonStatus = BUTTON_PRESS_NONE;
+      }
+      break;
+    case BUTTON_PRESS_BA:
+      if (ab.notPressed(A_BUTTON | B_BUTTON)) {
+        releasedButtonStatus = BUTTON_PRESS_BA;
+        buttonStatus = BUTTON_PRESS_NONE;
+      }
+      break;
+  }
 
-  drawStatus();
+  updateMainUI(releasedButtonStatus);
+
+  drawMainUI();
   ab.display();
 }
