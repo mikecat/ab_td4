@@ -352,7 +352,7 @@ void drawMenu() {
   ab.clear();
 
   // draw menu tabs
-  const int MENU_OFFSET = 8;
+  const int MENU_OFFSET = 6;
   int subMenuTextNum = 0;
   if (menuPage == 0) {
     subMenuTextNum = 5;
