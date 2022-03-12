@@ -107,12 +107,10 @@ void updateMainUI(uint8_t releasedButton) {
     if (editCursorAnim >= EDIT_CURSOR_ANIM_PERIOD) editCursorAnim = 0;
     
     if (ab.justReleased(LEFT_BUTTON)) {
-      editx--;
-      if (editx < 0) editx = 15;
+      if (editx == 0) editx = 15; else editx--;
     }
     if (ab.justReleased(UP_BUTTON)) {
-      edity--;
-      if (edity < 0) edity = 7;
+      if (edity == 0) edity = 7; else edity--;
     }
     if (ab.justReleased(DOWN_BUTTON)) {
       edity++;
