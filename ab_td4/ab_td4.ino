@@ -297,10 +297,10 @@ void updateMainUI(uint8_t releasedButton) {
       }
     } else {
       if (inputIsAlternate) {
-        if (ab.justPressed(LEFT_BUTTON)) in ^= 8;
-        if (ab.justPressed(UP_BUTTON)) in ^= 4;
-        if (ab.justPressed(DOWN_BUTTON)) in ^= 2;
-        if (ab.justPressed(RIGHT_BUTTON)) in ^= 1;
+        if (ab.justReleased(LEFT_BUTTON)) in ^= 8;
+        if (ab.justReleased(UP_BUTTON)) in ^= 4;
+        if (ab.justReleased(DOWN_BUTTON)) in ^= 2;
+        if (ab.justReleased(RIGHT_BUTTON)) in ^= 1;
       } else {
         in = 0;
         if (ab.pressed(LEFT_BUTTON)) in |= 8;
