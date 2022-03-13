@@ -113,6 +113,7 @@ uint8_t menuSelect = 0;
 uint8_t helpPage = 0;
 uint8_t menuSelected = 0;
 uint8_t menuDialogAutoClose = 0;
+uint8_t menuConfirmSelect = 0;
 
 // menu draw status
 uint8_t menuRedraw = 0;
@@ -508,6 +509,11 @@ void updateMenu() {
           case 3: soundPort = soundPort == 4 ? 0 : soundPort + 1; break;
           case 4: cpuType = cpuType == CPU_TD4_STRICT ? CPU_TD4 : cpuType + 1; break;
         }
+      } else if (menuPage == 1) {
+        if (menuSelect == 0) {
+          if (menuConfirmSelect == 0) menuConfirmSelect = 1;
+          else if (menuConfirmSelect == 1) menuConfirmSelect = 0;
+        }
       }
     } else {
       menuPage++;
@@ -524,6 +530,11 @@ void updateMenu() {
           case 2: inputIsAlternate = 1 - inputIsAlternate; break;
           case 3: soundPort = soundPort == 0 ? 4 : soundPort - 1; break;
           case 4: cpuType = cpuType == CPU_TD4 ? CPU_TD4_STRICT : cpuType - 1; break;
+        }
+      } else if (menuPage == 1) {
+        if (menuSelect == 0) {
+          if (menuConfirmSelect == 0) menuConfirmSelect = 1;
+          else if (menuConfirmSelect == 1) menuConfirmSelect = 0;
         }
       }
     } else {
@@ -567,12 +578,29 @@ void updateMenu() {
   }
   if (ab.justReleased(A_BUTTON)) {
     if (menuSelected) {
-      menuSelected = 0;
-      menuDialogAutoClose = 0;
+      if (menuPage == 1) {
+        if (menuSelect == 0) {
+          // ROM clear
+          if (menuConfirmSelect == 1) {
+            for (int i = 0; i < 16; i++) rom[i] = 0;
+            menuConfirmSelect = 2;
+            menuDialogAutoClose = 50;
+          } else {
+            menuSelected = 0;
+            menuDialogAutoClose = 0;
+          }
+        }
+      } else {
+        menuSelected = 0;
+        menuDialogAutoClose = 0;
+      }
     } else {
       if (menuPage == 0 && menuSelect == 0) {
         resetCPU();
         menuDialogAutoClose = 50;
+      }
+      if (menuPage == 1 && menuSelect == 0) {
+        menuConfirmSelect = 0;
       }
       if (menuPage != 3) {
         menuSelected = 1;
@@ -797,15 +825,45 @@ void drawMenu() {
           break;
       }
     }
-  } else if (menuPage == 1 && (menuSelect == 1 || menuSelect == 2)) {
-    const int MENU_DATA_X = 6 * 7 + 4;
-    for (int i = 0; i < 5; i++) {
-      ab.setCursor(MENU_DATA_X, SUBMENU_Y + 1 + 9 * i);
-      ab.print(F("999. "));
-      ab.print(F("ABCDEFGH"));
+  } else if (menuPage == 1) {
+    if (menuSelect == 1 || menuSelect == 2) {
+      const int MENU_DATA_X = 6 * 7 + 4;
+      for (int i = 0; i < 5; i++) {
+        ab.setCursor(MENU_DATA_X, SUBMENU_Y + 1 + 9 * i);
+        ab.print(F("999. "));
+        ab.print(F("ABCDEFGH"));
+      }
+      ab.setCursor(MENU_DATA_X + 12, SUBMENU_Y + 1 + 9 * 5);
+      ab.print(F("999 / 999"));
     }
-    ab.setCursor(MENU_DATA_X + 12, SUBMENU_Y + 1 + 9 * 5);
-    ab.print(F("999 / 999"));
+    if (menuSelect == 0 && menuSelected) {
+      if (menuConfirmSelect == 2) {
+        ab.fillRect(31 - 5 - 2, 28 - 5 - 2, 2 + 5 + 6 * 11 + 4 + 2, 2 + 5 + 7 + 5 + 2, BLACK);
+        ab.drawRect(31 - 5 - 1, 28 - 5 - 1, 1 + 5 + 6 * 11 + 4 + 1, 1 + 5 + 7 + 5 + 1, WHITE);
+        ab.setCursor(31, 28);
+        ab.print(F("ROM CLEARED"));
+      } else {
+        ab.fillRect(34 - 5 - 2, 22 - 5 - 2, 2 + 5 + 6 * 10 + 4 + 2, 2 + 5 + 7 + 5 + 7 + 5 + 2, BLACK);
+        ab.drawRect(34 - 5 - 1, 22 - 5 - 1, 1 + 5 + 6 * 10 + 4 + 1, 1 + 5 + 7 + 5 + 7 + 5 + 1, WHITE);
+        ab.setCursor(34, 22);
+        ab.print(F("CLEAR ROM?"));
+        if (menuConfirmSelect == 1) {
+          ab.fillRect(34 + 6 - 1, 22 + 7 + 5 - 1, 19, 9, WHITE);
+          ab.setTextColor(BLACK);
+        }
+        ab.setCursor(34 + 6, 22 + 7 + 5);
+        ab.print(F("YES"));
+        if (menuConfirmSelect == 0) {
+          ab.fillRect(34 + 6 * 6 - 1, 22 + 7 + 5 - 1, 19, 9, WHITE);
+          ab.setTextColor(BLACK);
+        } else {
+          ab.setTextColor(WHITE);
+        }
+        ab.setCursor(34 + 6 * 6 + 3, 22 + 7 + 5);
+        ab.print(F("NO"));
+        ab.setTextColor(WHITE);
+      }
+    }
   } else if (menuPage == 2) {
     const int MENU_DATA_X = 6 * 10;
     ab.setCursor(MENU_DATA_X, SUBMENU_Y + 1 + 9 * 3);
