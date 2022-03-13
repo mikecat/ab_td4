@@ -895,7 +895,36 @@ void drawMenu() {
       }
     }
   } else if (menuPage == 1) {
-    if (menuSelect == 1 || menuSelect == 2) {
+    if (menuSelect == 0) {
+      if (menuSelected) {
+        if (menuConfirmSelect == 2) {
+          ab.fillRect(31 - 5 - 2, 28 - 5 - 2, 2 + 5 + 6 * 11 + 4 + 2, 2 + 5 + 7 + 5 + 2, BLACK);
+          ab.drawRect(31 - 5 - 1, 28 - 5 - 1, 1 + 5 + 6 * 11 + 4 + 1, 1 + 5 + 7 + 5 + 1, WHITE);
+          ab.setCursor(31, 28);
+          ab.print(F("ROM CLEARED"));
+        } else {
+          ab.fillRect(34 - 5 - 2, 22 - 5 - 2, 2 + 5 + 6 * 10 + 4 + 2, 2 + 5 + 7 + 5 + 7 + 5 + 2, BLACK);
+          ab.drawRect(34 - 5 - 1, 22 - 5 - 1, 1 + 5 + 6 * 10 + 4 + 1, 1 + 5 + 7 + 5 + 7 + 5 + 1, WHITE);
+          ab.setCursor(34, 22);
+          ab.print(F("CLEAR ROM?"));
+          if (menuConfirmSelect == 1) {
+            ab.fillRect(34 + 6 - 1, 22 + 7 + 5 - 1, 19, 9, WHITE);
+            ab.setTextColor(BLACK);
+          }
+          ab.setCursor(34 + 6, 22 + 7 + 5);
+          ab.print(F("YES"));
+          if (menuConfirmSelect == 0) {
+            ab.fillRect(34 + 6 * 6 - 1, 22 + 7 + 5 - 1, 19, 9, WHITE);
+            ab.setTextColor(BLACK);
+          } else {
+            ab.setTextColor(WHITE);
+          }
+          ab.setCursor(34 + 6 * 6 + 3, 22 + 7 + 5);
+          ab.print(F("NO"));
+          ab.setTextColor(WHITE);
+        }
+      }
+    } else if (menuSelect == 1 || menuSelect == 2) {
       const int MENU_DATA_X = 6 * 7 + 4;
       for (int i = 0; i < 5; i++) {
         ab.setCursor(MENU_DATA_X, SUBMENU_Y + 1 + 9 * i);
@@ -945,34 +974,6 @@ void drawMenu() {
           ab.setCursor(22 + 6 * 3, 22 + 7 + 5);
           ab.print(F("B:CANCEL"));
         }
-      }
-    }
-    if (menuSelect == 0 && menuSelected) {
-      if (menuConfirmSelect == 2) {
-        ab.fillRect(31 - 5 - 2, 28 - 5 - 2, 2 + 5 + 6 * 11 + 4 + 2, 2 + 5 + 7 + 5 + 2, BLACK);
-        ab.drawRect(31 - 5 - 1, 28 - 5 - 1, 1 + 5 + 6 * 11 + 4 + 1, 1 + 5 + 7 + 5 + 1, WHITE);
-        ab.setCursor(31, 28);
-        ab.print(F("ROM CLEARED"));
-      } else {
-        ab.fillRect(34 - 5 - 2, 22 - 5 - 2, 2 + 5 + 6 * 10 + 4 + 2, 2 + 5 + 7 + 5 + 7 + 5 + 2, BLACK);
-        ab.drawRect(34 - 5 - 1, 22 - 5 - 1, 1 + 5 + 6 * 10 + 4 + 1, 1 + 5 + 7 + 5 + 7 + 5 + 1, WHITE);
-        ab.setCursor(34, 22);
-        ab.print(F("CLEAR ROM?"));
-        if (menuConfirmSelect == 1) {
-          ab.fillRect(34 + 6 - 1, 22 + 7 + 5 - 1, 19, 9, WHITE);
-          ab.setTextColor(BLACK);
-        }
-        ab.setCursor(34 + 6, 22 + 7 + 5);
-        ab.print(F("YES"));
-        if (menuConfirmSelect == 0) {
-          ab.fillRect(34 + 6 * 6 - 1, 22 + 7 + 5 - 1, 19, 9, WHITE);
-          ab.setTextColor(BLACK);
-        } else {
-          ab.setTextColor(WHITE);
-        }
-        ab.setCursor(34 + 6 * 6 + 3, 22 + 7 + 5);
-        ab.print(F("NO"));
-        ab.setTextColor(WHITE);
       }
     }
   } else if (menuPage == 2) {
