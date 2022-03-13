@@ -47,6 +47,10 @@ const uint8_t triangle[] PROGMEM = {
   0x7c, 0x38, 0x10
 };
 
+// UP+DOWN reset
+const uint8_t UD_RESET_WAIT = 150;
+uint8_t udResetCount = 0;
+
 // configuration
 uint8_t cpuSpeed = 3;
 uint8_t inputIsAlternate = 1;
@@ -891,6 +895,12 @@ void loop() {
   }
   ab.pollButtons();
   beep.timer();
+  if (ab.pressed(UP_BUTTON | DOWN_BUTTON) && !(screen == SCREEN_MAIN && !editing && !inputIsAlternate)) {
+    udResetCount++;
+    if (udResetCount >= UD_RESET_WAIT) ab.exitToBootloader();
+  } else {
+    udResetCount = 0;
+  }
   uint8_t releasedButtonStatus = BUTTON_PRESS_NONE;
   switch (buttonStatus) {
     case BUTTON_PRESS_NONE:
