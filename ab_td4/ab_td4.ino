@@ -118,6 +118,10 @@ uint8_t helpPage = 0;
 uint8_t menuSelected = 0;
 uint8_t menuDialogAutoClose = 0;
 uint8_t menuConfirmSelect = 0;
+uint8_t romImportBuffer[16];
+uint8_t romImportPos = 0;
+uint8_t romExportPos = 0;
+uint8_t prevSerialStatus = 0;
 
 // menu draw status
 uint8_t menuRedraw = 0;
@@ -602,9 +606,17 @@ void updateMenu() {
       if (menuPage == 0 && menuSelect == 0) {
         resetCPU();
         menuDialogAutoClose = 50;
-      }
-      if (menuPage == 1 && menuSelect == 0) {
-        menuConfirmSelect = 0;
+      } else if (menuPage == 1) {
+        if (menuSelect == 0) {
+          menuConfirmSelect = 0;
+        } else if (menuSelect == 3) {
+          romImportPos = 0;
+          if (Serial) {
+            while (Serial.available() > 0) Serial.read();
+          }
+        } else if (menuSelect == 4) {
+          romExportPos = 0;
+        }
       }
       if (menuPage != 3) {
         menuSelected = 1;
@@ -623,12 +635,65 @@ void updateMenu() {
       statusFullRedraw = 1;
     }
   }
+  if (menuPage == 1 && menuSelected) {
+    if (menuSelect == 3) {
+      if (romImportPos < 32 && Serial) {
+        while (Serial.available() > 0) {
+          int c = Serial.read();
+          int d = -1;
+          if ('0' <= c && c <= '9') d = c - '0';
+          else if ('A' <= c && c <= 'F') d = c - 'A' + 10;
+          else if ('a' <= c && c <= 'f') d = c - 'a' + 10;
+          if (d >= 0) {
+            if (romImportPos % 2 == 0) {
+              romImportBuffer[romImportPos / 2] = d << 4;
+            } else {
+              romImportBuffer[romImportPos / 2] |= d;
+            }
+            romImportPos++;
+            if (romImportPos >= 32) {
+              for (int i = 0; i < 16; i++) rom[i] = romImportBuffer[i];
+              menuDialogAutoClose = 50;
+              menuRedraw = 1;
+              break;
+            }
+          }
+        }
+      }
+    } else if (menuSelect == 4) {
+      if (romExportPos < 33 && Serial) {
+        while (Serial.availableForWrite() > 0) {
+          char c;
+          if (romExportPos >= 32) {
+            c = '\n';
+          } else {
+            uint8_t cu = rom[romExportPos / 2];
+            if (romExportPos % 2 == 0) cu >>= 4; else cu &= 0xf;
+            cu += cu > 9 ? 'a' - 10 : '0';
+            c = cu;
+          }
+          Serial.print(c);
+          romExportPos++;
+          if (romExportPos > 32) {
+            menuDialogAutoClose = 50;
+            menuRedraw = 1;
+            break;
+          }
+        }
+      }
+    }
+  }
   if (menuDialogAutoClose > 0) {
     menuDialogAutoClose--;
     if (menuDialogAutoClose == 0) {
       menuSelected = 0;
       menuRedraw = 1;
     }
+  }
+  uint8_t currentSerialStatus = !!Serial;
+  if (currentSerialStatus != prevSerialStatus) {
+    menuRedraw = 1;
+    prevSerialStatus = currentSerialStatus;
   }
 }
 
@@ -839,6 +904,48 @@ void drawMenu() {
       }
       ab.setCursor(MENU_DATA_X + 12, SUBMENU_Y + 1 + 9 * 5);
       ab.print(F("999 / 999"));
+    } else if (menuSelect == 3) {
+      if (menuSelected) {
+        if (romImportPos == 32) {
+          ab.fillRect(28 - 5 - 2, 28 - 5 - 2, 2 + 5 + 6 * 12 + 4 + 2, 2 + 5 + 7 + 5 + 2, BLACK);
+          ab.drawRect(28 - 5 - 1, 28 - 5 - 1, 1 + 5 + 6 * 12 + 4 + 1, 1 + 5 + 7 + 5 + 1, WHITE);
+          ab.setCursor(28, 28);
+          ab.print(F("ROM IMPORTED"));
+        } else {
+          ab.fillRect(22 - 5 - 2, 22 - 5 - 2, 2 + 5 + 6 * 14 + 4 + 2, 2 + 5 + 7 + 5 + 7 + 5 + 2, BLACK);
+          ab.drawRect(22 - 5 - 1, 22 - 5 - 1, 1 + 5 + 6 * 14 + 4 + 1, 1 + 5 + 7 + 5 + 7 + 5 + 1, WHITE);
+          if (Serial) {
+            ab.setCursor(22 + 6, 22);
+            ab.print(F("READING DATA"));
+          } else {
+            ab.setCursor(22, 22);
+            ab.print(F("CONNECT SERIAL"));
+          }
+          ab.setCursor(22 + 6 * 3, 22 + 7 + 5);
+          ab.print(F("B:CANCEL"));
+        }
+      }
+    } else if (menuSelect == 4) {
+      if (menuSelected) {
+        if (romExportPos == 33) {
+          ab.fillRect(28 - 5 - 2, 28 - 5 - 2, 2 + 5 + 6 * 12 + 4 + 2, 2 + 5 + 7 + 5 + 2, BLACK);
+          ab.drawRect(28 - 5 - 1, 28 - 5 - 1, 1 + 5 + 6 * 12 + 4 + 1, 1 + 5 + 7 + 5 + 1, WHITE);
+          ab.setCursor(28, 28);
+          ab.print(F("ROM EXPORTED"));
+        } else {
+          ab.fillRect(22 - 5 - 2, 22 - 5 - 2, 2 + 5 + 6 * 14 + 4 + 2, 2 + 5 + 7 + 5 + 7 + 5 + 2, BLACK);
+          ab.drawRect(22 - 5 - 1, 22 - 5 - 1, 1 + 5 + 6 * 14 + 4 + 1, 1 + 5 + 7 + 5 + 7 + 5 + 1, WHITE);
+          if (Serial) {
+            ab.setCursor(22 + 6, 22);
+            ab.print(F("SENDING DATA"));
+          } else {
+            ab.setCursor(22, 22);
+            ab.print(F("CONNECT SERIAL"));
+          }
+          ab.setCursor(22 + 6 * 3, 22 + 7 + 5);
+          ab.print(F("B:CANCEL"));
+        }
+      }
     }
     if (menuSelect == 0 && menuSelected) {
       if (menuConfirmSelect == 2) {
@@ -886,6 +993,7 @@ void setup() {
   ab.setTextSize(1);
   ab.setFrameRate(100);
   beep.begin();
+  Serial.begin(9600);
 }
 
 void loop() {
