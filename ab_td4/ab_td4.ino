@@ -1,8 +1,10 @@
 #include <Arduboy2.h>
 #include <Sprites.h>
+#include <Arduboy2Beep.h>
 
 Arduboy2 ab;
 Sprites sp;
+BeepPin1 beep;
 
 const uint8_t ledGraph[] PROGMEM = {
   6, 8,
@@ -39,6 +41,33 @@ const uint8_t romFont[] PROGMEM = {
 };
 const uint8_t inverter[] PROGMEM = { 0x7f, 0x7f, 0x7f, 0x7f, 0x7f};
 
+const uint8_t triangle[] PROGMEM = {
+  3, 8,
+  0x10, 0x38, 0x7c,
+  0x7c, 0x38, 0x10
+};
+
+// configuration
+uint8_t cpuSpeed = 3;
+uint8_t inputIsAlternate = 1;
+uint8_t soundPort = 4;
+const uint8_t CPU_TD4 = 0;
+const uint8_t CPU_KAGEKI = 1;
+const uint8_t CPU_TD4_STRICT = 2;
+uint8_t cpuType = CPU_TD4;
+
+uint8_t cpuSpeedIdToSpeed(uint8_t id) {
+  uint8_t res = 1;
+  while (id >= 3) {
+    id -= 3;
+    res *= 10;
+  }
+  if (id == 2) res *= 5;
+  else if (id == 1) res *= 2;
+  return res;
+}
+
+// screen select
 const uint8_t SCREEN_MAIN = 0;
 const uint8_t SCREEN_MENU = 1;
 uint8_t screen = SCREEN_MAIN;
@@ -50,6 +79,10 @@ uint8_t editing = 0;
 uint8_t editx = 0, edity = 0;
 const uint8_t EDIT_CURSOR_ANIM_PERIOD = 70;
 uint8_t editCursorAnim = 0;
+uint8_t prevIsAdd = 0;
+const uint8_t UNDI_OP = 1;
+const uint8_t UNDI_JNC = 2;
+uint8_t undefinedInstruction = 0;
 
 const uint8_t BUTTON_PRESS_NONE = 0;
 const uint8_t BUTTON_PRESS_A = 1;
@@ -68,81 +101,209 @@ uint8_t statusFullRedraw = 1;
 uint8_t romIdxRedraw = ROM_REDRAW_NONE, romBitRedraw = ROM_REDRAW_NONE;
 // drawn values
 uint8_t ad = 0, bd = 0, cd = 0, pcd = 0, outd = 0, ind = 0;
-uint8_t runningd = 0, editingd = 0, buttonStatusd = 0;
+uint8_t runningd = 0, editingd = 0, buttonStatusd = 0, uid = 0;
 uint8_t editxd = 0, edityd = 0, editscd = 0;
+
+const uint16_t beepCount = BeepPin1::freq(500);
 
 // menu status
 const uint8_t MENU_CPU = 0;
 uint8_t menuPage = 0;
 uint8_t menuSelect = 0;
 uint8_t helpPage = 0;
+uint8_t menuSelected = 0;
+uint8_t menuDialogAutoClose = 0;
 
 // menu draw status
 uint8_t menuRedraw = 0;
 
+void resetCPU() {
+  a = 0;
+  b = 0;
+  c = 0;
+  pc = 0;
+  out = 0;
+  prevIsAdd = 0;
+}
+
 void emulateOneCycle() {
-  pc = (pc + 1) & 0xf;
+  if (cpuType == CPU_TD4) {
+    uint8_t inst = rom[pc];
+    uint8_t inputSel = ((inst >> 4) & 3) | (inst >> 7);
+    uint8_t loadSel = inst >> 6;
+    uint8_t input, aluRes;
+    if (loadSel == 3 && !((inst & 0x10) || !c)) loadSel = 4;
+    switch (inputSel) {
+      case 0: input = a; break;
+      case 1: input = b; break;
+      case 2: input = in; break;
+      default: input = 0; break;
+    }
+    aluRes = input + (inst & 0xf);
+    c = aluRes >> 4;
+    aluRes &= 0xf;
+    pc = (pc + 1) & 0xf;
+    switch (loadSel) {
+      case 0: a = aluRes; break;
+      case 1: b = aluRes; break;
+      case 2: out = aluRes; break;
+      case 3: pc = aluRes; break;
+    }
+    prevIsAdd = (inst >> 4) == 0x0 || (inst >> 4) == 0x5;
+  } else if (cpuType == CPU_KAGEKI) {
+    uint8_t inst = rom[pc];
+    uint8_t imm = inst & 0xf;
+    uint8_t srcSel = (inst >> 4) & 3;
+    uint8_t wbSel = inst >> 6;
+    uint8_t notCJump = srcSel & 1;
+    uint8_t src, wb, newc;
+    switch (srcSel) {
+      case 0: src = a; break;
+      case 1: src = b; break;
+      case 2: src = in; break;
+      default: src = 0; break;
+    }
+    if (wbSel == 3) src = 0;
+    wb = src + imm;
+    newc = wb >> 4;
+    wb &= 0xf;
+    pc = (pc + 1) & 0xf;
+    switch (wbSel) {
+      case 0: a = wb; break;
+      case 1: b = wb; break;
+      case 2: out = wb; break;
+      case 3:
+        if (!(!notCJump && c)) pc = wb;
+        break;
+    }
+    c = newc;
+    prevIsAdd = (inst >> 4) == 0x0 || (inst >> 4) == 0x5;
+  } else if (cpuType == CPU_TD4_STRICT) {
+    uint8_t inst = rom[pc];
+    uint8_t op = inst >> 4;
+    uint8_t Im = inst & 0xf;
+    uint8_t newPC = (pc + 1) & 0xf, newC = 0, nextIsAdd = 0;
+    if (op == 0x0) { // ADD A, Im
+      a += Im;
+      newC = a >> 4;
+      a &= 0xf;
+      nextIsAdd = 1;
+    } else if (op == 0x5) { // ADD B, Im
+      b += Im;
+      newC = b >> 4;
+      b &= 0xf;
+      nextIsAdd = 1;
+    } else if (op == 0x3) { // MOV A, Im
+      a = Im;
+    } else if (op == 0x7) { // MOV B, Im
+      b = Im;
+    } else if (op == 0x1 && Im == 0) { // MOV A, B
+      a = b;
+    } else if (op == 0x4 && Im == 0) { // MOV B, A
+      b = a;
+    } else if (op == 0xf) { // JMP Im
+      newPC = Im;
+    } else if (op == 0xe) { // JNC Im
+      if (prevIsAdd) {
+        if (!c) newPC = Im;
+      } else {
+        undefinedInstruction = UNDI_JNC;
+      }
+    } else if (op == 0x2 && Im == 0) { // IN A
+      a = in;
+    } else if (op == 0x6 && Im == 0) { // IN B
+      b = in;
+    } else if (op == 0x9 && Im == 0) { // OUT B
+      out = b;
+    } else if (op == 0xb) { // OUT Im
+      out = Im;
+    } else {
+      undefinedInstruction = UNDI_OP;
+    }
+    if (!undefinedInstruction) {
+      pc = newPC;
+      c = newC;
+      prevIsAdd = nextIsAdd;
+    } else {
+      running = 0;
+    }
+  }
 }
 
 void updateMainUI(uint8_t releasedButton) {
-  if ((editing || running) && releasedButton == BUTTON_PRESS_AB) {
-    releasedButton = BUTTON_PRESS_A;
-  }
-  switch (releasedButton) {
-    case BUTTON_PRESS_A:
-      if (editing) {
-        romIdxRedraw = edity + 8 * (editx >= 8);
-        romBitRedraw = editx % 8;
-        rom[romIdxRedraw] ^= 1 << (7 - romBitRedraw);
-      } else {
-        if (running) {
-          running = 0;
-        } else {
-          emulateOneCycle();
-        }
-      }
-      break;
-    case BUTTON_PRESS_AB:
-      running = 1;
-      prescaleCount = prescaler;
-      break;
-    case BUTTON_PRESS_B:
-      if (editing) {
-        editing = 0;
-      } else {
-        editing = 1;
-        editCursorAnim = 0;
-      }
-      break;
-    case BUTTON_PRESS_BA:
-      running = 0;
-      screen = SCREEN_MENU;
-      menuRedraw = 1;
-      break;
-  }
-  if (editing) {
-    editCursorAnim++;
-    if (editCursorAnim >= EDIT_CURSOR_ANIM_PERIOD) editCursorAnim = 0;
-    
-    if (ab.justReleased(LEFT_BUTTON)) {
-      if (editx == 0) editx = 15; else editx--;
-    }
-    if (ab.justReleased(UP_BUTTON)) {
-      if (edity == 0) edity = 7; else edity--;
-    }
-    if (ab.justReleased(DOWN_BUTTON)) {
-      edity++;
-      if (edity > 7) edity = 0;
-    }
-    if (ab.justReleased(RIGHT_BUTTON)) {
-      editx++;
-      if (editx > 15) editx = 0;
+  if (undefinedInstruction) {
+    if ((ab.justReleased(A_BUTTON) || ab.justReleased(B_BUTTON)) && ab.notPressed(A_BUTTON | B_BUTTON)) {
+      undefinedInstruction = 0;
     }
   } else {
-    if (ab.justReleased(LEFT_BUTTON)) in ^= 8;
-    if (ab.justReleased(UP_BUTTON)) in ^= 4;
-    if (ab.justReleased(DOWN_BUTTON)) in ^= 2;
-    if (ab.justReleased(RIGHT_BUTTON)) in ^= 1;
+    if ((editing || running) && releasedButton == BUTTON_PRESS_AB) {
+      releasedButton = BUTTON_PRESS_A;
+    }
+    switch (releasedButton) {
+      case BUTTON_PRESS_A:
+        if (editing) {
+          romIdxRedraw = edity + 8 * (editx >= 8);
+          romBitRedraw = editx % 8;
+          rom[romIdxRedraw] ^= 1 << (7 - romBitRedraw);
+        } else {
+          if (running) {
+            running = 0;
+          } else {
+            emulateOneCycle();
+          }
+        }
+        break;
+      case BUTTON_PRESS_AB:
+        running = 1;
+        prescaleCount = prescaler;
+        break;
+      case BUTTON_PRESS_B:
+        if (editing) {
+          editing = 0;
+        } else {
+          editing = 1;
+          editCursorAnim = 0;
+        }
+        break;
+      case BUTTON_PRESS_BA:
+        running = 0;
+        beep.noTone();
+        screen = SCREEN_MENU;
+        menuRedraw = 1;
+        break;
+    }
+    if (editing) {
+      editCursorAnim++;
+      if (editCursorAnim >= EDIT_CURSOR_ANIM_PERIOD) editCursorAnim = 0;
+      
+      if (ab.justReleased(LEFT_BUTTON)) {
+        if (editx == 0) editx = 15; else editx--;
+      }
+      if (ab.justReleased(UP_BUTTON)) {
+        if (edity == 0) edity = 7; else edity--;
+      }
+      if (ab.justReleased(DOWN_BUTTON)) {
+        edity++;
+        if (edity > 7) edity = 0;
+      }
+      if (ab.justReleased(RIGHT_BUTTON)) {
+        editx++;
+        if (editx > 15) editx = 0;
+      }
+    } else {
+      if (inputIsAlternate) {
+        if (ab.justPressed(LEFT_BUTTON)) in ^= 8;
+        if (ab.justPressed(UP_BUTTON)) in ^= 4;
+        if (ab.justPressed(DOWN_BUTTON)) in ^= 2;
+        if (ab.justPressed(RIGHT_BUTTON)) in ^= 1;
+      } else {
+        in = 0;
+        if (ab.pressed(LEFT_BUTTON)) in |= 8;
+        if (ab.pressed(UP_BUTTON)) in |= 4;
+        if (ab.pressed(DOWN_BUTTON)) in |= 2;
+        if (ab.pressed(RIGHT_BUTTON)) in |= 1;
+      }
+    }
   }
 
   if (running) {
@@ -160,17 +321,17 @@ void drawMainUI() {
   const int C_Y = 10 + 8 * 2, OUT_Y = 10 + 8 * 3, IN_Y = 10 + 8 * 4 + 2;
 
   const int ROM_C1 = 45, ROM_C2 = 87;
-  
-  if (statusFullRedraw) {
+
+  if (statusFullRedraw || (uid && !undefinedInstruction)) {
     ab.clear();
-  
+
     // draw status
     for (int i = 0; i < 4; i++) {
       sp.drawSelfMasked(LED_POS + 7 * i, PC_Y + 1, ledGraph, (pc >> (3 - i)) & 1);
       sp.drawSelfMasked(LED_POS + 7 * i, A_Y + 1, ledGraph, (a >> (3 - i)) & 1);
       sp.drawSelfMasked(LED_POS + 7 * i, B_Y + 1, ledGraph, (b >> (3 - i)) & 1);
-      sp.drawSelfMasked(LED_POS + 7 * i, OUT_Y + 1, ledGraph, (b >> (3 - i)) & 1);
-      sp.drawSelfMasked(LED_POS + 7 * i, IN_Y + 1, ledGraph, (b >> (3 - i)) & 1);
+      sp.drawSelfMasked(LED_POS + 7 * i, OUT_Y + 1, ledGraph, (out >> (3 - i)) & 1);
+      sp.drawSelfMasked(LED_POS + 7 * i, IN_Y + 1, ledGraph, (in >> (3 - i)) & 1);
     }
     sp.drawSelfMasked(LED_POS, C_Y + 1, ledGraph, c & 1);
     ab.setCursor(0, PC_Y); ab.print(F("PC"));
@@ -179,7 +340,14 @@ void drawMainUI() {
     ab.setCursor(3, C_Y); ab.write('C');
     sp.drawSelfMasked(0, OUT_Y, outGraph, 0);
     ab.setCursor(0, IN_Y); ab.print(F("IN"));
-  
+
+    // set beep status
+    if (out & (1 << soundPort)) {
+      beep.tone(beepCount);
+    } else {
+      beep.noTone();
+    }
+
     // draw ROM contents
     for (int i = 0; i < 8; i++) {
       int y = 1 + 7 * i;
@@ -241,6 +409,11 @@ void drawMainUI() {
       for (int i = 0; i < 4; i++) {
         sp.drawSelfMasked(LED_POS + 7 * i, OUT_Y + 1, ledGraph, (out >> (3 - i)) & 1);
       }
+      if (out & (1 << soundPort)) {
+        if (!(outd & (1 << soundPort))) beep.tone(beepCount);
+      } else {
+        beep.noTone();
+      }
       outd = out;
     }
     if (in != ind) {
@@ -259,39 +432,54 @@ void drawMainUI() {
     }
   }
   bool editingChanged = editing != editingd;
-  if (buttonStatus != buttonStatusd || running != runningd || editingChanged) {
+  if (buttonStatus != buttonStatusd || running != runningd || editingChanged || undefinedInstruction != uid) {
     ab.fillRect(0, 57, 128, 7, BLACK);
-    if (buttonStatus & (BUTTON_PRESS_B | BUTTON_PRESS_BA)) {
-      ab.setCursor(0, 57);
-      ab.print(F("B+A:MENU"));
+    if (undefinedInstruction) {
+      ab.fillRect(16 - 5 - 2, 22 - 5 - 2, 2 + 5 + 6 * 16 + 4 + 2, 2 + 5 + 7 + 5 + 7 + 5 + 2, BLACK);
+      ab.drawRect(16 - 5 - 1, 22 - 5 - 1, 1 + 5 + 6 * 16 + 4 + 1, 1 + 5 + 7 + 5 + 7 + 5 + 1, WHITE);
+      if (undefinedInstruction == UNDI_OP) {
+        ab.setCursor(16, 22);
+        ab.print(F("UNDEFINED OPCODE"));
+      } else if (undefinedInstruction == UNDI_JNC) {
+        ab.setCursor(16 + 3, 22);
+        ab.print(F("JNC without ADD"));
+      }
+      ab.setCursor(43, 22 + 7 + 5);
+      ab.print(F("PRESS A"));
     } else {
-      ab.setCursor(12, 57);
-      if (editing) {
-        ab.print(F("A:TOGGLE"));
+      if (buttonStatus & (BUTTON_PRESS_B | BUTTON_PRESS_BA)) {
+        ab.setCursor(0, 57);
+        ab.print(F("B+A:MENU"));
       } else {
-        if (running) {
-          ab.print(F("A:STOP"));
+        ab.setCursor(12, 57);
+        if (editing) {
+          ab.print(F("A:TOGGLE"));
         } else {
-          ab.print(F("A:STEP"));
+          if (running) {
+            ab.print(F("A:STOP"));
+          } else {
+            ab.print(F("A:STEP"));
+          }
         }
       }
-    }
-    if (buttonStatus & (BUTTON_PRESS_A | BUTTON_PRESS_AB)) {
-      ab.setCursor(64, 57);
-      if (!editing && !running) {
-        ab.print(F("A+B:RUN"));
-      }
-    } else {
-      ab.setCursor(64 + 12, 57);
-      if (editing) {
-        ab.print(F("B:BACK"));
+      if (buttonStatus & (BUTTON_PRESS_A | BUTTON_PRESS_AB)) {
+        ab.setCursor(64, 57);
+        if (!editing && !running) {
+          ab.print(F("A+B:RUN"));
+        }
       } else {
-        ab.print(F("B:EDIT"));
+        ab.setCursor(64 + 12, 57);
+        if (editing) {
+          ab.print(F("B:BACK"));
+        } else {
+          ab.print(F("B:EDIT"));
+        }
       }
     }
     runningd = running;
     editingd = editing;
     buttonStatusd = buttonStatus;
+    uid = undefinedInstruction;
   }
   uint8_t editsc = editCursorAnim < EDIT_CURSOR_ANIM_PERIOD / 2;
   if (editingChanged || editx != editxd || edity != edityd || editsc != editscd) {
@@ -312,38 +500,103 @@ void drawMainUI() {
 
 void updateMenu() {
   if (ab.justReleased(RIGHT_BUTTON)) {
-    menuPage++;
-    if (menuPage > 3) menuPage = 0;
-    if (menuPage == 2 && menuSelect > 2) menuSelect = 2;
+    if (menuSelected) {
+      if (menuPage == 0) {
+        switch (menuSelect) {
+          case 1: cpuSpeed = cpuSpeed == 6 ? 0 : cpuSpeed + 1; break;
+          case 2: inputIsAlternate = 1 - inputIsAlternate; break;
+          case 3: soundPort = soundPort == 4 ? 0 : soundPort + 1; break;
+          case 4: cpuType = cpuType == CPU_TD4_STRICT ? CPU_TD4 : cpuType + 1; break;
+        }
+      }
+    } else {
+      menuPage++;
+      if (menuPage > 3) menuPage = 0;
+      if (menuPage == 2 && menuSelect > 2) menuSelect = 2;
+    }
     menuRedraw = 1;
   }
   if (ab.justReleased(LEFT_BUTTON)) {
-    if (menuPage == 0) menuPage = 3; else menuPage--;
-    if (menuPage == 2 && menuSelect > 2) menuSelect = 2;
+    if (menuSelected) {
+      if (menuPage == 0) {
+        switch (menuSelect) {
+          case 1: cpuSpeed = cpuSpeed == 0 ? 6 : cpuSpeed - 1; break;
+          case 2: inputIsAlternate = 1 - inputIsAlternate; break;
+          case 3: soundPort = soundPort == 0 ? 4 : soundPort - 1; break;
+          case 4: cpuType = cpuType == CPU_TD4 ? CPU_TD4_STRICT : cpuType - 1; break;
+        }
+      }
+    } else {
+      if (menuPage == 0) menuPage = 3; else menuPage--;
+      if (menuPage == 2 && menuSelect > 2) menuSelect = 2;
+    }
     menuRedraw = 1;
   }
   if (ab.justReleased(DOWN_BUTTON)) {
-    if (menuPage == 3) {
-      helpPage++;
-      if (helpPage > 1) helpPage = 0;
+    if (menuSelected) {
+      if (menuPage == 0) {
+        if (menuSelect == 4) menuSelect = 1;
+        else if (menuSelect > 0) menuSelect++;
+      }
     } else {
-      menuSelect++;
-      if (menuSelect > (menuPage == 2 ? 2 : 4)) menuSelect = 0;
+      if (menuPage == 3) {
+        helpPage++;
+        if (helpPage > 1) helpPage = 0;
+      } else {
+        menuSelect++;
+        if (menuSelect > (menuPage == 2 ? 2 : 4)) menuSelect = 0;
+      }
     }
     menuRedraw = 1;
   }
   if (ab.justReleased(UP_BUTTON)) {
-    if (menuPage == 3) {
-      if (helpPage == 0) helpPage = 1; else helpPage--;
+    if (menuSelected) {
+      if (menuPage == 0) {
+        if (menuSelect == 1) menuSelect = 4;
+        else if (menuSelect > 0) menuSelect--;
+      }
     } else {
-      if (menuSelect == 0) menuSelect = (menuPage == 2 ? 2 : 4);
-      else menuSelect--;
+      if (menuPage == 3) {
+        if (helpPage == 0) helpPage = 1; else helpPage--;
+      } else {
+        if (menuSelect == 0) menuSelect = (menuPage == 2 ? 2 : 4);
+        else menuSelect--;
+      }
+    }
+    menuRedraw = 1;
+  }
+  if (ab.justReleased(A_BUTTON)) {
+    if (menuSelected) {
+      menuSelected = 0;
+      menuDialogAutoClose = 0;
+    } else {
+      if (menuPage == 0 && menuSelect == 0) {
+        resetCPU();
+        menuDialogAutoClose = 50;
+      }
+      if (menuPage != 3) {
+        menuSelected = 1;
+      }
     }
     menuRedraw = 1;
   }
   if (ab.justReleased(B_BUTTON)) {
-    screen = SCREEN_MAIN;
-    statusFullRedraw = 1;
+    if (menuSelected) {
+      menuSelected = 0;
+      menuDialogAutoClose = 0;
+      menuRedraw = 1;
+    } else {
+      prescaler = 100 / cpuSpeedIdToSpeed(cpuSpeed);
+      screen = SCREEN_MAIN;
+      statusFullRedraw = 1;
+    }
+  }
+  if (menuDialogAutoClose > 0) {
+    menuDialogAutoClose--;
+    if (menuDialogAutoClose == 0) {
+      menuSelected = 0;
+      menuRedraw = 1;
+    }
   }
 }
 
@@ -408,7 +661,7 @@ void drawMenu() {
     if (menuPage == 0) ab.print(F("RESET"));
     else if (menuPage == 1) ab.print(F("CLEAR"));
     else if (menuPage == 2) ab.print(F("ERASE  ALL"));
-  
+
     if (menuSelect == 1) {
       ab.fillRect(0, SUBMENU_Y + 9 * 1, 6 * subMenuTextNum + 1, 9, WHITE);
       ab.setTextColor(BLACK);
@@ -419,7 +672,7 @@ void drawMenu() {
     if (menuPage == 0) ab.print(F("SPEED"));
     else if (menuPage == 1) ab.print(F("LOAD"));
     else if (menuPage == 2) ab.print(F("IMPORT ALL"));
-  
+
     if (menuSelect == 2) {
       ab.fillRect(0, SUBMENU_Y + 9 * 2, 6 * subMenuTextNum + 1, 9, WHITE);
       ab.setTextColor(BLACK);
@@ -430,7 +683,7 @@ void drawMenu() {
     if (menuPage == 0) ab.print(F("INPUT"));
     else if (menuPage == 1) ab.print(F("SAVE"));
     else if (menuPage == 2) ab.print(F("EXPORT ALL"));
-  
+
     if (menuSelect == 3) {
       ab.fillRect(0, SUBMENU_Y + 9 * 3, 6 * subMenuTextNum + 1, 9, WHITE);
       ab.setTextColor(BLACK);
@@ -440,7 +693,7 @@ void drawMenu() {
     ab.setCursor(1, SUBMENU_Y + 1 + 9 * 3);
     if (menuPage == 0) ab.print(F("SOUND"));
     else if (menuPage == 1) ab.print(F("IMPORT"));
-  
+
     if (menuSelect == 4) {
       ab.fillRect(0, SUBMENU_Y + 9 * 4, 6 * subMenuTextNum + 1, 9, WHITE);
       ab.setTextColor(BLACK);
@@ -494,13 +747,56 @@ void drawMenu() {
   if (menuPage == 0) {
     const int MENU_DATA_X = 6 * 8;
     ab.setCursor(MENU_DATA_X, SUBMENU_Y + 1 + 9 * 1);
-    ab.print(F("10Hz"));
+    ab.print(cpuSpeedIdToSpeed(cpuSpeed));
+    ab.print(F("Hz"));
     ab.setCursor(MENU_DATA_X, SUBMENU_Y + 1 + 9 * 2);
-    ab.print(F("ON/OFF"));
+    if (inputIsAlternate) {
+      ab.print(F("ON/OFF"));
+    } else {
+      ab.print(F("PUSH ON"));
+    }
     ab.setCursor(MENU_DATA_X, SUBMENU_Y + 1 + 9 * 3);
-    ab.print(F("OFF"));
+    if (soundPort < 4) {
+      ab.print(F("OUT "));
+      ab.print(soundPort);
+    } else {
+      ab.print(F("OFF"));
+    }
     ab.setCursor(MENU_DATA_X, SUBMENU_Y + 1 + 9 * 4);
-    ab.print(F("TD4"));
+    switch (cpuType) {
+      case CPU_TD4: ab.print(F("TD4")); break;
+      case CPU_KAGEKI: ab.print(F("Kageki")); break;
+      case CPU_TD4_STRICT: ab.print(F("TD4 STRICT")); break;
+    }
+    if (menuSelected) {
+      switch (menuSelect) {
+        case 0:
+          {
+            const int X = 37, Y = 28;
+            ab.fillRect(X - 5 - 2, Y - 5 - 2, 2 + 5 + 6 * 9 + 4 + 2, 2 + 5 + 8 + 4 + 2, BLACK);
+            ab.drawRect(X - 5 - 1, Y - 5 - 1, 1 + 5 + 6 * 9 + 4 + 1, 1 + 5 + 8 + 4 + 1, WHITE);
+            ab.setCursor(X, Y);
+            ab.print(F("CPU RESET"));
+          }
+          break;
+        case 1:
+          sp.drawSelfMasked(MENU_DATA_X - 7, SUBMENU_Y + 9 * 1, triangle, 0);
+          sp.drawSelfMasked(MENU_DATA_X + 3 + 6 * 5, SUBMENU_Y + 9 * 1, triangle, 1);
+          break;
+        case 2:
+          sp.drawSelfMasked(MENU_DATA_X - 7, SUBMENU_Y + 9 * 2, triangle, 0);
+          sp.drawSelfMasked(MENU_DATA_X + 3 + 6 * 7, SUBMENU_Y + 9 * 2, triangle, 1);
+          break;
+        case 3:
+          sp.drawSelfMasked(MENU_DATA_X - 7, SUBMENU_Y + 9 * 3, triangle, 0);
+          sp.drawSelfMasked(MENU_DATA_X + 3 + 6 * 5, SUBMENU_Y + 9 * 3, triangle, 1);
+          break;
+        case 4:
+          sp.drawSelfMasked(MENU_DATA_X - 7, SUBMENU_Y + 9 * 4, triangle, 0);
+          sp.drawSelfMasked(MENU_DATA_X + 3 + 6 * 10, SUBMENU_Y + 9 * 4, triangle, 1);
+          break;
+      }
+    }
   } else if (menuPage == 1 && (menuSelect == 1 || menuSelect == 2)) {
     const int MENU_DATA_X = 6 * 7 + 4;
     for (int i = 0; i < 5; i++) {
@@ -527,6 +823,7 @@ void setup() {
   ab.begin();
   ab.setTextSize(1);
   ab.setFrameRate(100);
+  beep.begin();
 }
 
 void loop() {
@@ -535,6 +832,7 @@ void loop() {
     return;
   }
   ab.pollButtons();
+  beep.timer();
   uint8_t releasedButtonStatus = BUTTON_PRESS_NONE;
   switch (buttonStatus) {
     case BUTTON_PRESS_NONE:
