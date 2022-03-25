@@ -1,10 +1,34 @@
 #include <Arduboy2.h>
 #include <Sprites.h>
 #include <Arduboy2Beep.h>
+#include <avr/pgmspace.h>
 
 Arduboy2 ab;
 Sprites sp;
 BeepPin1 beep;
+
+const uint16_t crcTable[256] PROGMEM = {
+  0x0000u, 0x1021u, 0x2042u, 0x3063u, 0x4084u, 0x50a5u, 0x60c6u, 0x70e7u, 0x8108u, 0x9129u, 0xa14au, 0xb16bu, 0xc18cu, 0xd1adu, 0xe1ceu, 0xf1efu,
+  0x1231u, 0x0210u, 0x3273u, 0x2252u, 0x52b5u, 0x4294u, 0x72f7u, 0x62d6u, 0x9339u, 0x8318u, 0xb37bu, 0xa35au, 0xd3bdu, 0xc39cu, 0xf3ffu, 0xe3deu,
+  0x2462u, 0x3443u, 0x0420u, 0x1401u, 0x64e6u, 0x74c7u, 0x44a4u, 0x5485u, 0xa56au, 0xb54bu, 0x8528u, 0x9509u, 0xe5eeu, 0xf5cfu, 0xc5acu, 0xd58du,
+  0x3653u, 0x2672u, 0x1611u, 0x0630u, 0x76d7u, 0x66f6u, 0x5695u, 0x46b4u, 0xb75bu, 0xa77au, 0x9719u, 0x8738u, 0xf7dfu, 0xe7feu, 0xd79du, 0xc7bcu,
+  0x48c4u, 0x58e5u, 0x6886u, 0x78a7u, 0x0840u, 0x1861u, 0x2802u, 0x3823u, 0xc9ccu, 0xd9edu, 0xe98eu, 0xf9afu, 0x8948u, 0x9969u, 0xa90au, 0xb92bu,
+  0x5af5u, 0x4ad4u, 0x7ab7u, 0x6a96u, 0x1a71u, 0x0a50u, 0x3a33u, 0x2a12u, 0xdbfdu, 0xcbdcu, 0xfbbfu, 0xeb9eu, 0x9b79u, 0x8b58u, 0xbb3bu, 0xab1au,
+  0x6ca6u, 0x7c87u, 0x4ce4u, 0x5cc5u, 0x2c22u, 0x3c03u, 0x0c60u, 0x1c41u, 0xedaeu, 0xfd8fu, 0xcdecu, 0xddcdu, 0xad2au, 0xbd0bu, 0x8d68u, 0x9d49u,
+  0x7e97u, 0x6eb6u, 0x5ed5u, 0x4ef4u, 0x3e13u, 0x2e32u, 0x1e51u, 0x0e70u, 0xff9fu, 0xefbeu, 0xdfddu, 0xcffcu, 0xbf1bu, 0xaf3au, 0x9f59u, 0x8f78u,
+  0x9188u, 0x81a9u, 0xb1cau, 0xa1ebu, 0xd10cu, 0xc12du, 0xf14eu, 0xe16fu, 0x1080u, 0x00a1u, 0x30c2u, 0x20e3u, 0x5004u, 0x4025u, 0x7046u, 0x6067u,
+  0x83b9u, 0x9398u, 0xa3fbu, 0xb3dau, 0xc33du, 0xd31cu, 0xe37fu, 0xf35eu, 0x02b1u, 0x1290u, 0x22f3u, 0x32d2u, 0x4235u, 0x5214u, 0x6277u, 0x7256u,
+  0xb5eau, 0xa5cbu, 0x95a8u, 0x8589u, 0xf56eu, 0xe54fu, 0xd52cu, 0xc50du, 0x34e2u, 0x24c3u, 0x14a0u, 0x0481u, 0x7466u, 0x6447u, 0x5424u, 0x4405u,
+  0xa7dbu, 0xb7fau, 0x8799u, 0x97b8u, 0xe75fu, 0xf77eu, 0xc71du, 0xd73cu, 0x26d3u, 0x36f2u, 0x0691u, 0x16b0u, 0x6657u, 0x7676u, 0x4615u, 0x5634u,
+  0xd94cu, 0xc96du, 0xf90eu, 0xe92fu, 0x99c8u, 0x89e9u, 0xb98au, 0xa9abu, 0x5844u, 0x4865u, 0x7806u, 0x6827u, 0x18c0u, 0x08e1u, 0x3882u, 0x28a3u,
+  0xcb7du, 0xdb5cu, 0xeb3fu, 0xfb1eu, 0x8bf9u, 0x9bd8u, 0xabbbu, 0xbb9au, 0x4a75u, 0x5a54u, 0x6a37u, 0x7a16u, 0x0af1u, 0x1ad0u, 0x2ab3u, 0x3a92u,
+  0xfd2eu, 0xed0fu, 0xdd6cu, 0xcd4du, 0xbdaau, 0xad8bu, 0x9de8u, 0x8dc9u, 0x7c26u, 0x6c07u, 0x5c64u, 0x4c45u, 0x3ca2u, 0x2c83u, 0x1ce0u, 0x0cc1u,
+  0xef1fu, 0xff3eu, 0xcf5du, 0xdf7cu, 0xaf9bu, 0xbfbau, 0x8fd9u, 0x9ff8u, 0x6e17u, 0x7e36u, 0x4e55u, 0x5e74u, 0x2e93u, 0x3eb2u, 0x0ed1u, 0x1ef0u
+};
+
+uint16_t crcUpdate(uint8_t data, uint16_t crc) {
+  return pgm_read_word_near(crcTable + ((crc >> 8) ^ data)) ^ (crc << 8);
+}
 
 const uint8_t ledGraph[] PROGMEM = {
   6, 8,
@@ -46,6 +70,17 @@ const uint8_t triangle[] PROGMEM = {
   0x10, 0x38, 0x7c,
   0x7c, 0x38, 0x10
 };
+
+void eepromInitialize() {
+}
+
+bool eepromIsBusy() {
+  return false;
+}
+
+void eepromErase(int address) {
+  delayMicroseconds(1600);
+}
 
 // UP+DOWN reset
 const uint8_t UD_RESET_WAIT = 150;
@@ -125,6 +160,45 @@ uint8_t prevSerialStatus = 0;
 
 // menu draw status
 uint8_t menuRedraw = 0;
+
+// EEPROM erase/import/export
+enum {
+  // done
+  EEPROM_COMM_SUCCEEDED,
+  EEPROM_COMM_FAILED,
+  EEPROM_COMM_CANCELED,
+  // not running
+  EEPROM_COMM_NONE,
+  // ready to run
+  EEPROM_COMM_RECV_CONNECT,
+  EEPROM_COMM_SEND_CONNECT,
+  // running (disable idle)
+  EEPROM_COMM_DISABLE_IDLE_BORDER,
+  EEPROM_COMM_ERASING = EEPROM_COMM_DISABLE_IDLE_BORDER,
+  EEPROM_COMM_RECV_INIT,
+  EEPROM_COMM_RECV_READING,
+  EEPROM_COMM_RECV_WRITING,
+  EEPROM_COMM_SEND_INIT,
+  EEPROM_COMM_SEND_SENDING,
+  EEPROM_COMM_SEND_WAITING_ACK
+};
+uint8_t eepromCommStatus = EEPROM_COMM_NONE;
+uint8_t eepromCommUseCrc;
+unsigned long eepromCommStartTime;
+uint8_t eepromCommRetryCount;
+uint8_t eepromCommBuffer[1 + 2 + 128 + 2];
+uint16_t eepromCommCrc;
+uint8_t eepromCommSeqId;
+uint8_t eepromCommBlockPos;
+int eepromCommPointer;
+uint8_t eepromCommCancelRequest;
+uint8_t eepromCommCanCount;
+
+const uint8_t SOH = 0x01, EOT = 0x04, ACK = 0x06, NAK = 0x15, CAN = 0x18;
+
+uint8_t prevEepromCommStatusKind;
+int prevEepromCommPointer;
+uint8_t menuFramePrescalerWhileComm;
 
 void resetCPU() {
   a = 0;
@@ -284,7 +358,7 @@ void updateMainUI(uint8_t releasedButton) {
     if (editing) {
       editCursorAnim++;
       if (editCursorAnim >= EDIT_CURSOR_ANIM_PERIOD) editCursorAnim = 0;
-      
+
       if (ab.justReleased(LEFT_BUTTON)) {
         if (editx == 0) editx = 15; else editx--;
       }
@@ -522,6 +596,11 @@ void updateMenu() {
           if (menuConfirmSelect == 0) menuConfirmSelect = 1;
           else if (menuConfirmSelect == 1) menuConfirmSelect = 0;
         }
+      } else if (menuPage == 2) {
+        if (menuSelect == 0) {
+          if (menuConfirmSelect == 0) menuConfirmSelect = 1;
+          else if (menuConfirmSelect == 1) menuConfirmSelect = 0;
+        }
       }
     } else {
       menuPage++;
@@ -540,6 +619,11 @@ void updateMenu() {
           case 4: cpuType = cpuType == CPU_TD4 ? CPU_TD4_STRICT : cpuType - 1; break;
         }
       } else if (menuPage == 1) {
+        if (menuSelect == 0) {
+          if (menuConfirmSelect == 0) menuConfirmSelect = 1;
+          else if (menuConfirmSelect == 1) menuConfirmSelect = 0;
+        }
+      } else if (menuPage == 2) {
         if (menuSelect == 0) {
           if (menuConfirmSelect == 0) menuConfirmSelect = 1;
           else if (menuConfirmSelect == 1) menuConfirmSelect = 0;
@@ -598,6 +682,25 @@ void updateMenu() {
             menuDialogAutoClose = 0;
           }
         }
+      } else if (menuPage == 2) {
+        if (menuSelect == 0) {
+          // EEPROM erase
+          if (menuConfirmSelect == 1) {
+            menuConfirmSelect = 2;
+            eepromCommStatus = EEPROM_COMM_ERASING;
+            eepromCommPointer = EEPROM_STORAGE_SPACE_START;
+          } else if (menuConfirmSelect == 0) {
+            menuSelected = 0;
+            menuDialogAutoClose = 0;
+          }
+        } else {
+          // EEPROM import/export
+          if (eepromCommStatus < EEPROM_COMM_NONE) {
+            eepromCommStatus = EEPROM_COMM_NONE;
+            menuSelected = 0;
+            menuDialogAutoClose = 0;
+          }
+        }
       } else {
         menuSelected = 0;
         menuDialogAutoClose = 0;
@@ -617,6 +720,22 @@ void updateMenu() {
         } else if (menuSelect == 4) {
           romExportPos = 0;
         }
+      } else if (menuPage == 2) {
+        if (menuSelect == 0) {
+          menuConfirmSelect = 0;
+        } else if (menuSelect == 1 || menuSelect == 2) {
+          if (Serial) {
+            while (Serial.available() > 0) Serial.read();
+          }
+          if (menuSelect == 1) {
+            eepromCommStatus = EEPROM_COMM_RECV_CONNECT;
+          } else {
+            eepromCommStatus = EEPROM_COMM_SEND_CONNECT;
+          }
+          eepromCommCancelRequest = 0;
+          eepromCommCanCount = 0;
+          eepromCommPointer = EEPROM_STORAGE_SPACE_START;
+        }
       }
       if (menuPage != 3) {
         menuSelected = 1;
@@ -626,9 +745,30 @@ void updateMenu() {
   }
   if (ab.justReleased(B_BUTTON)) {
     if (menuSelected) {
-      menuSelected = 0;
-      menuDialogAutoClose = 0;
-      menuRedraw = 1;
+      if (menuPage == 2) {
+        if (menuSelect == 0) {
+          // EEPROM erase
+          if (menuConfirmSelect != 2) {
+            menuSelected = 0;
+            menuDialogAutoClose = 0;
+            menuRedraw = 1;
+          }
+        } else {
+          // EEPROM import/export
+          if (eepromCommStatus >= EEPROM_COMM_DISABLE_IDLE_BORDER) {
+            eepromCommCancelRequest = 1;
+          } else {
+            eepromCommStatus = EEPROM_COMM_NONE;
+            menuSelected = 0;
+            menuDialogAutoClose = 0;
+            menuRedraw = 1;
+          }
+        }
+      } else {
+        menuSelected = 0;
+        menuDialogAutoClose = 0;
+        menuRedraw = 1;
+      }
     } else {
       prescaler = 100 / cpuSpeedIdToSpeed(cpuSpeed);
       screen = SCREEN_MAIN;
@@ -683,6 +823,23 @@ void updateMenu() {
       }
     }
   }
+  if (menuPage == 2 && menuSelected && menuSelect == 0) {
+    if (eepromCommStatus == EEPROM_COMM_SUCCEEDED && menuDialogAutoClose == 0) {
+      eepromInitialize();
+      eepromCommStatus = EEPROM_COMM_NONE;
+      menuDialogAutoClose = 50;
+    }
+  }
+  if (eepromCommStatus == EEPROM_COMM_RECV_CONNECT && Serial) {
+    eepromCommUseCrc = 1;
+    eepromCommRetryCount = 0;
+    eepromCommStartTime = millis();
+    Serial.write('C');
+    eepromCommStatus = EEPROM_COMM_RECV_INIT;
+  }
+  if (eepromCommStatus == EEPROM_COMM_SEND_CONNECT && Serial) {
+    eepromCommStatus = EEPROM_COMM_SEND_INIT;
+  }
   if (menuDialogAutoClose > 0) {
     menuDialogAutoClose--;
     if (menuDialogAutoClose == 0) {
@@ -695,10 +852,34 @@ void updateMenu() {
     menuRedraw = 1;
     prevSerialStatus = currentSerialStatus;
   }
+  uint8_t eepromCommStatusKind =
+    (eepromCommStatus >= EEPROM_COMM_NONE) +
+    (eepromCommStatus > EEPROM_COMM_NONE) +
+    (eepromCommStatus >= EEPROM_COMM_DISABLE_IDLE_BORDER);
+  if (eepromCommStatusKind != prevEepromCommStatusKind) {
+    menuRedraw = 1;
+    prevEepromCommStatusKind = eepromCommStatusKind;
+  }
 }
 
 void drawMenu() {
-  if (!menuRedraw) return;
+  if (!menuRedraw) {
+    if (eepromCommPointer != prevEepromCommPointer) {
+      if (menuPage == 2 && menuSelected) {
+        if (menuSelect == 0 && menuConfirmSelect == 2 && eepromCommStatus == EEPROM_COMM_ERASING) {
+          ab.fillRect(26, 22 + 7 + 5 + 1, 6 * 13 - 1 - 2, BLACK);
+          ab.fillRect(26, 22 + 7 + 5 + 1, (long)(6 * 13 - 1 - 2) * (eepromCommPointer - EEPROM_STORAGE_SPACE_START) / (EEPROM.length() - EEPROM_STORAGE_SPACE_START), 5, WHITE);
+        } else if (eepromCommStatus >= EEPROM_COMM_DISABLE_IDLE_BORDER) {
+          int graphPos = eepromCommPointer;
+          if (graphPos > EEPROM.length()) graphPos = EEPROM.length();
+          ab.fillRect(23, 21 + 7 + 5 + 1, 6 * 14 - 1 - 2, BLACK);
+          ab.fillRect(23, 21 + 7 + 5 + 1, (long)(6 * 14 - 1 - 2) * (graphPos - EEPROM_STORAGE_SPACE_START) / (EEPROM.length() - EEPROM_STORAGE_SPACE_START), 5, WHITE);
+        }
+      }
+      prevEepromCommPointer = eepromCommPointer;
+    }
+    return;
+  }
   ab.clear();
 
   // draw menu tabs
@@ -984,9 +1165,78 @@ void drawMenu() {
     ab.print(F("999 BLOCKS"));
     ab.setCursor(MENU_DATA_X, SUBMENU_Y + 1 + 9 * 5);
     ab.print(F("999 BLOCKS"));
+    if (menuSelected) {
+      if (menuSelect == 0) {
+        ab.fillRect(25 - 5 - 2, 22 - 5 - 2, 2 + 5 + 6 * 13 + 4 + 2, 2 + 5 + 7 + 5 + 7 + 5 + 2, BLACK);
+        ab.drawRect(25 - 5 - 1, 22 - 5 - 1, 1 + 5 + 6 * 13 + 4 + 1, 1 + 5 + 7 + 5 + 7 + 5 + 1, WHITE);
+        ab.setCursor(25, 22);
+        if (menuConfirmSelect == 2) {
+          ab.print(F("ERASE EEPROM"));
+          if (eepromCommStatus == EEPROM_COMM_ERASING) {
+            ab.drawRect(25, 22 + 7 + 5, 6 * 13 - 1, 7, WHITE);
+            ab.fillRect(26, 22 + 7 + 5 + 1, (long)(6 * 13 - 1 - 2) * (eepromCommPointer - EEPROM_STORAGE_SPACE_START) / (EEPROM.length() - EEPROM_STORAGE_SPACE_START), 5, WHITE);
+          } else {
+            ab.setCursor(49, 22 + 7 + 5);
+            ab.print(F("DONE!"));
+          }
+        } else {
+          ab.print(F("ERASE EEPROM?"));
+          if (menuConfirmSelect == 1) {
+            ab.fillRect(34 + 6 - 1, 22 + 7 + 5 - 1, 19, 9, WHITE);
+            ab.setTextColor(BLACK);
+          }
+          ab.setCursor(34 + 6, 22 + 7 + 5);
+          ab.print(F("YES"));
+          if (menuConfirmSelect == 0) {
+            ab.fillRect(34 + 6 * 6 - 1, 22 + 7 + 5 - 1, 19, 9, WHITE);
+            ab.setTextColor(BLACK);
+          } else {
+            ab.setTextColor(WHITE);
+          }
+          ab.setCursor(34 + 6 * 6 + 3, 22 + 7 + 5);
+          ab.print(F("NO"));
+          ab.setTextColor(WHITE);
+        }
+      } else {
+        ab.fillRect(22 - 5 - 2, 21 - 5 - 2, 2 + 5 + 6 * 14 + 4 + 2, 2 + 5 + 7 + 5 + 7 + 5 + 7 + 5 + 2, BLACK);
+        ab.drawRect(22 - 5 - 1, 21 - 5 - 1, 1 + 5 + 6 * 14 + 4 + 1, 1 + 5 + 7 + 5 + 7 + 5 + 7 + 5 + 1, WHITE);
+        ab.setCursor(25, 21);
+        if (menuSelect == 1) {
+          ab.print(F("IMPORT EEPROM"));
+        } else {
+          ab.print(F("EXPORT EEPROM"));
+        }
+        if (eepromCommStatus == EEPROM_COMM_SUCCEEDED) {
+          ab.setCursor(49, 21 + 7 + 5);
+          ab.print(F("DONE!"));
+        } else if (eepromCommStatus == EEPROM_COMM_FAILED) {
+          ab.setCursor(46, 21 + 7 + 5);
+          ab.print(F("FAILED"));
+        } else if (eepromCommStatus == EEPROM_COMM_CANCELED) {
+          ab.setCursor(40, 21 + 7 + 5);
+          ab.print(F("CANCELED"));
+        } else if (eepromCommStatus == EEPROM_COMM_RECV_CONNECT || eepromCommStatus == EEPROM_COMM_SEND_CONNECT) {
+          ab.setCursor(22, 21 + 7 + 5);
+          ab.print(F("CONNECT SERIAL"));
+        } else {
+          int graphPos = eepromCommPointer;
+          if (graphPos > EEPROM.length()) graphPos = EEPROM.length();
+          ab.drawRect(22, 21 + 7 + 5, 6 * 14 - 1, 7, WHITE);
+          ab.fillRect(23, 21 + 7 + 5 + 1, (long)(6 * 14 - 1 - 2) * (graphPos - EEPROM_STORAGE_SPACE_START) / (EEPROM.length() - EEPROM_STORAGE_SPACE_START), 5, WHITE);
+        }
+        if (eepromCommStatus > EEPROM_COMM_NONE) {
+          ab.setCursor(40, 21 + 7 + 5 + 7 + 5);
+          ab.print(F("B:CANCEL"));
+        } else {
+          ab.setCursor(43, 21 + 7 + 5 + 7 + 5);
+          ab.print(F("PRESS A"));
+        }
+      }
+    }
   }
 
   menuRedraw = 0;
+  prevEepromCommPointer = eepromCommPointer;
 }
 
 void setup() {
@@ -998,11 +1248,191 @@ void setup() {
 }
 
 void loop() {
+  if (eepromCommStatus >= EEPROM_COMM_DISABLE_IDLE_BORDER) {
+    switch (eepromCommStatus) {
+      case EEPROM_COMM_ERASING:
+        if (!eepromIsBusy()) {
+          if (eepromCommPointer < EEPROM.length()) {
+            eepromErase(eepromCommPointer);
+            eepromCommPointer++;
+          } else {
+            eepromCommStatus = EEPROM_COMM_SUCCEEDED;
+          }
+        }
+        break;
+      case EEPROM_COMM_RECV_INIT:
+        if (!Serial) {
+          eepromCommStatus = EEPROM_COMM_FAILED;
+        } else if (eepromCommCancelRequest) {
+          Serial.write(CAN);
+          Serial.write(CAN);
+          eepromCommStatus = EEPROM_COMM_NONE;
+          menuSelected = 0;
+        } else {
+          int inChar = Serial.read();
+          if (inChar == SOH) {
+            eepromCommStatus = EEPROM_COMM_RECV_READING;
+            eepromCommRetryCount = 0;
+            eepromCommCanCount = 0;
+            eepromCommSeqId = 1;
+            eepromCommBlockPos = 1;
+            eepromCommCrc = 0;
+            eepromCommBuffer[0] = inChar;
+            eepromCommStartTime = millis();
+          } else if (inChar == CAN) {
+            eepromCommCanCount++;
+            eepromCommStartTime = millis();
+            if (eepromCommCanCount >= 2) {
+              eepromCommStatus = EEPROM_COMM_CANCELED;
+            }
+          } else if (inChar >= 0) {
+            eepromCommCanCount = 0;
+          }
+          if (millis() - eepromCommStartTime >= 3000) {
+            eepromCommRetryCount++;
+            if (eepromCommUseCrc && eepromCommRetryCount >= 3) {
+              // switch to checksum after sending 3 'C's
+              eepromCommRetryCount = 0;
+              eepromCommUseCrc = 0;
+            }
+            if (eepromCommRetryCount >= 10) {
+              eepromCommStatus = EEPROM_COMM_FAILED;
+            } else {
+              Serial.write(eepromCommUseCrc ? 'C' : NAK);
+              eepromCommStartTime = millis();
+            }
+          }
+        }
+        break;
+      case EEPROM_COMM_RECV_READING:
+        if (eepromCommCancelRequest) {
+          Serial.write(CAN);
+          Serial.write(CAN);
+          eepromCommStatus = EEPROM_COMM_NONE;
+          menuSelected = 0;
+        } else {
+          bool sendNak = false, ignoreFrame = false;
+          if (Serial.available() > 0) {
+            while (Serial.available() > 0) {
+              int inChar = Serial.read();
+              if (eepromCommBlockPos == 0 && inChar != SOH) {
+                if (inChar == CAN) {
+                  eepromCommCanCount++;
+                  if (eepromCommCanCount >= 2) {
+                    eepromCommStatus = EEPROM_COMM_CANCELED;
+                    break;
+                  }
+                } else if (inChar == EOT) {
+                  Serial.write(ACK);
+                  eepromCommStatus = EEPROM_COMM_SUCCEEDED;
+                  break;
+                }
+              } else {
+                eepromCommCanCount = 0;
+                if (3 <= eepromCommBlockPos && eepromCommBlockPos < 3 + 128) {
+                  if (eepromCommUseCrc) {
+                    eepromCommCrc = crcUpdate(inChar, eepromCommCrc);
+                  } else {
+                    eepromCommCrc += inChar;
+                  }
+                }
+                eepromCommBuffer[eepromCommBlockPos++] = inChar;
+                if (eepromCommBlockPos >= 1 + 2 + 128 + (eepromCommUseCrc ? 2 : 1)) {
+                  if (eepromCommBuffer[2] != (eepromCommBuffer[1] ^ 0xff)) {
+                    // broken frame ID
+                    sendNak = true;
+                  } else if (eepromCommBuffer[1] == ((eepromCommSeqId - 1) & 0xff)) {
+                    // duplicate frame -> ignore
+                    sendNak = true;
+                    ignoreFrame = true;
+                  } else if (eepromCommBuffer[1] != eepromCommSeqId) {
+                    // invalid frame -> abort
+                    Serial.write(CAN);
+                    Serial.write(CAN);
+                    eepromCommStatus = EEPROM_COMM_FAILED;
+                  } else if (eepromCommUseCrc &&
+                             ((eepromCommBuffer[3 + 128] != (eepromCommCrc >> 8)) || (eepromCommBuffer[3 + 128 + 1] != (eepromCommCrc & 0xff)))) {
+                    // CRC mismatch
+                    sendNak = true;
+                  } else if (!eepromCommUseCrc && eepromCommBuffer[3 + 128] != (eepromCommCrc & 0xff)) {
+                    // checksum mismatch
+                    sendNak = true;
+                  } else {
+                    // valid frame
+                    if (eepromCommPointer >= EEPROM.length()) {
+                      // too much data
+                      Serial.write(CAN);
+                      Serial.write(CAN);
+                      eepromCommStatus = EEPROM_COMM_SUCCEEDED;
+                    } else {
+                      // begin to write
+                      eepromCommBlockPos = 0;
+                      eepromCommStatus = EEPROM_COMM_RECV_WRITING;
+                    }
+                  }
+                  break;
+                }
+              }
+            }
+            eepromCommStartTime = millis();
+          }
+          if (sendNak || millis() - eepromCommStartTime >= 10000) {
+            if (eepromCommRetryCount >= 10) {
+              // give up after sending 10 NAKs
+              Serial.write(CAN);
+              Serial.write(CAN);
+              eepromCommStatus = EEPROM_COMM_FAILED;
+            } else {
+              Serial.write(ignoreFrame ? ACK : NAK);
+              eepromCommBlockPos = 0;
+              eepromCommCrc = 0;
+              eepromCommRetryCount++;
+              eepromCommStartTime = millis();
+            }
+          }
+        }
+        break;
+      case EEPROM_COMM_RECV_WRITING:
+        if (eepromCommCancelRequest) {
+          Serial.write(CAN);
+          Serial.write(CAN);
+          eepromCommStatus = EEPROM_COMM_NONE;
+          menuSelected = 0;
+        } else if (!eepromIsBusy()) {
+          if (eepromCommBlockPos < 128) {
+            if (eepromCommPointer < EEPROM.length()) {
+              //EEPROM.update(eepromCommPointer, eepromCommBuffer[3 + eepromCommBlockPos]);
+              delayMicroseconds(3600);
+              eepromCommPointer++;
+              eepromCommBlockPos++;
+            } else {
+              eepromCommBlockPos = 128;
+            }
+          } else {
+            Serial.write(ACK);
+            eepromCommSeqId++;
+            eepromCommBlockPos = 0;
+            eepromCommCrc = 0;
+            eepromCommStartTime = millis();
+            eepromCommRetryCount = 0;
+            eepromCommStatus = EEPROM_COMM_RECV_READING;
+          }
+        }
+        break;
+      case EEPROM_COMM_SEND_INIT:
+        break;
+      case EEPROM_COMM_SEND_SENDING:
+        break;
+      case EEPROM_COMM_SEND_WAITING_ACK:
+        break;
+    }
+  }
   if (!ab.nextFrame()) {
-    ab.idle();
+    if (eepromCommStatus < EEPROM_COMM_DISABLE_IDLE_BORDER) {
+      ab.idle();
+    }
     return;
   }
-  ab.pollButtons();
   beep.timer();
   if (ab.pressed(UP_BUTTON | DOWN_BUTTON) && !(screen == SCREEN_MAIN && !editing && !inputIsAlternate)) {
     udResetCount++;
@@ -1010,6 +1440,17 @@ void loop() {
   } else {
     udResetCount = 0;
   }
+  if (eepromCommStatus >= EEPROM_COMM_DISABLE_IDLE_BORDER) {
+    menuFramePrescalerWhileComm++;
+    if (menuFramePrescalerWhileComm < 5) {
+      return;
+    } else {
+      menuFramePrescalerWhileComm = 0;
+    }
+  } else {
+    menuFramePrescalerWhileComm = 0;
+  }
+  ab.pollButtons();
   uint8_t releasedButtonStatus = BUTTON_PRESS_NONE;
   switch (buttonStatus) {
     case BUTTON_PRESS_NONE:
