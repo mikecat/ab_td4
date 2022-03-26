@@ -1420,10 +1420,122 @@ void loop() {
         }
         break;
       case EEPROM_COMM_SEND_INIT:
+        if (eepromCommCancelRequest) {
+          Serial.write(CAN);
+          Serial.write(CAN);
+          eepromCommStatus = EEPROM_COMM_NONE;
+          menuSelected = 0;
+        } else {
+          int inChar = Serial.read();
+          if (inChar == 'C' || inChar == NAK) {
+            eepromCommStatus = EEPROM_COMM_SEND_SENDING;
+            eepromCommUseCrc = (inChar == 'C' ? 1 : 0);
+            eepromCommRetryCount = 0;
+            eepromCommCrc = 0;
+            eepromCommSeqId = 1;
+            eepromCommBlockPos = 0;
+            eepromCommCanCount = 0;
+          } else if (inChar == CAN) {
+            eepromCommCanCount++;
+            if (eepromCommCanCount >= 2) {
+              eepromCommStatus = EEPROM_COMM_CANCELED;
+            }
+          } else if (inChar >= 0) {
+            eepromCommCanCount = 0;
+          }
+        }
         break;
       case EEPROM_COMM_SEND_SENDING:
+        while (Serial.availableForWrite() > 0) {
+          if (eepromCommBlockPos == 0) {
+            Serial.write(SOH);
+          } else if (eepromCommBlockPos == 1) {
+            Serial.write(eepromCommSeqId);
+          } else if (eepromCommBlockPos == 2) {
+            Serial.write(eepromCommSeqId ^ 0xff);
+          } else if (eepromCommBlockPos < 3 + 128) {
+            int outChar;
+            if (eepromCommPointer + eepromCommBlockPos - 3 < EEPROM.length()) {
+              outChar = EEPROM.read(eepromCommPointer + eepromCommBlockPos - 3);
+            } else {
+              outChar = 0x1a;
+            }
+            Serial.write(outChar);
+            if (eepromCommUseCrc) {
+              eepromCommCrc = crcUpdate(outChar, eepromCommCrc);
+            } else {
+              eepromCommCrc += outChar;
+            }
+          } else if (eepromCommBlockPos == 3 + 128) {
+            Serial.write((eepromCommCrc >> (eepromCommUseCrc ? 8 : 0)) & 0xff);
+          } else if(eepromCommBlockPos == 3 + 128 + 1) {
+            if(eepromCommUseCrc) {
+              Serial.write(eepromCommCrc & 0xff);
+            } else {
+              eepromCommStartTime = millis();
+              eepromCommStatus = EEPROM_COMM_SEND_WAITING_ACK;
+              break;
+            }
+          } else {
+            eepromCommStartTime = millis();
+            eepromCommStatus = EEPROM_COMM_SEND_WAITING_ACK;
+            break;
+          }
+          eepromCommBlockPos++;
+        }
         break;
       case EEPROM_COMM_SEND_WAITING_ACK:
+        if (eepromCommCancelRequest) {
+          Serial.write(CAN);
+          Serial.write(CAN);
+          eepromCommStatus = EEPROM_COMM_NONE;
+          menuSelected = 0;
+        } else {
+          int inChar = Serial.read();
+          if (inChar == ACK) {
+            if (eepromCommPointer < EEPROM.length()) {
+              eepromCommPointer += 128;
+              if (eepromCommPointer < EEPROM.length()) {
+                eepromCommStatus = EEPROM_COMM_SEND_SENDING;
+                eepromCommCrc = 0;
+                eepromCommSeqId++;
+                eepromCommBlockPos = 0;
+              } else{
+                eepromCommStartTime = millis();
+                Serial.write(EOT);
+              }
+              eepromCommRetryCount = 0;
+              eepromCommCanCount = 0;
+            } else {
+              eepromCommStatus = EEPROM_COMM_SUCCEEDED;
+            }
+          } else if (inChar == NAK || (inChar < 0 && (millis() - eepromCommStartTime) >= 10000)) {
+            eepromCommCanCount = 0;
+            eepromCommRetryCount++;
+            if (eepromCommRetryCount < 10) {
+              if (eepromCommPointer < EEPROM.length()) {
+                eepromCommStatus = EEPROM_COMM_SEND_SENDING;
+                eepromCommCrc = 0;
+                eepromCommBlockPos = 0;
+              } else {
+                eepromCommStartTime = millis();
+                Serial.write(EOT);
+              }
+            } else {
+              // too many retries -> abort
+              Serial.write(CAN);
+              Serial.write(CAN);
+              eepromCommStatus = EEPROM_COMM_FAILED;
+            }
+          } else if (inChar == CAN) {
+            eepromCommCanCount++;
+            if (eepromCommCanCount >= 2) {
+              eepromCommStatus = EEPROM_COMM_CANCELED;
+            }
+          } else if (inChar >= 0) {
+            eepromCommCanCount = 0;
+          }
+        }
         break;
     }
   }
