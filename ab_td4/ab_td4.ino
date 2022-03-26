@@ -1290,8 +1290,8 @@ void loop() {
           }
           if (millis() - eepromCommStartTime >= 3000) {
             eepromCommRetryCount++;
-            if (eepromCommUseCrc && eepromCommRetryCount >= 3) {
-              // switch to checksum after sending 3 'C's
+            if (eepromCommUseCrc && eepromCommRetryCount >= 4) {
+              // switch to checksum after sending 4 'C's
               eepromCommRetryCount = 0;
               eepromCommUseCrc = 0;
             }
