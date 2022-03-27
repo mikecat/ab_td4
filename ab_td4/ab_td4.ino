@@ -75,11 +75,26 @@ void eepromInitialize() {
 }
 
 bool eepromIsBusy() {
-  return false;
+  return !!(EECR & 2); // EEPE == 1 -> busy
 }
 
 void eepromErase(int address) {
-  delayMicroseconds(1600);
+  while (eepromIsBusy());
+  if (EEPROM.read(address) == 0xff) return;
+  EEAR = address;
+  // set EEPM = 0b01 (erase only)
+  EECR = (EECR & 0xcf) | 0x10;
+  __asm__ __volatile__(
+    // EECR I/O address = 0x1f
+    "in r18, 0x1f\n\t"
+    "andi r18, 0xf9\n\t"
+    "ori r18, 0x04\n\t"
+    "cli\n\t"
+    "out 0x1f, r18\n\t" // EEMPE = 1, EEPE = 0
+    "ori r18, 0x02\n\t"
+    "out 0x1f, r18\n\t" // EEPE = 1
+    "sei\n\t"
+  : : : "r18");
 }
 
 // UP+DOWN reset
@@ -1401,8 +1416,7 @@ void loop() {
         } else if (!eepromIsBusy()) {
           if (eepromCommBlockPos < 128) {
             if (eepromCommPointer < EEPROM.length()) {
-              //EEPROM.update(eepromCommPointer, eepromCommBuffer[3 + eepromCommBlockPos]);
-              delayMicroseconds(3600);
+              EEPROM.update(eepromCommPointer, eepromCommBuffer[3 + eepromCommBlockPos]);
               eepromCommPointer++;
               eepromCommBlockPos++;
             } else {
