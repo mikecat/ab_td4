@@ -711,6 +711,7 @@ void updateMenu() {
         } else {
           // EEPROM import/export
           if (eepromCommStatus < EEPROM_COMM_NONE) {
+            if (menuSelect == 1) eepromInitialize();
             eepromCommStatus = EEPROM_COMM_NONE;
             menuSelected = 0;
             menuDialogAutoClose = 0;
@@ -773,6 +774,7 @@ void updateMenu() {
           if (eepromCommStatus >= EEPROM_COMM_DISABLE_IDLE_BORDER) {
             eepromCommCancelRequest = 1;
           } else {
+            if (menuSelect == 1) eepromInitialize();
             eepromCommStatus = EEPROM_COMM_NONE;
             menuSelected = 0;
             menuDialogAutoClose = 0;
@@ -1320,9 +1322,12 @@ void loop() {
         }
         break;
       case EEPROM_COMM_RECV_READING:
-        if (eepromCommCancelRequest) {
+        if (!Serial) {
+          eepromCommStatus = EEPROM_COMM_FAILED;
+        } else if (eepromCommCancelRequest) {
           Serial.write(CAN);
           Serial.write(CAN);
+          eepromInitialize();
           eepromCommStatus = EEPROM_COMM_NONE;
           menuSelected = 0;
         } else {
@@ -1408,9 +1413,12 @@ void loop() {
         }
         break;
       case EEPROM_COMM_RECV_WRITING:
-        if (eepromCommCancelRequest) {
+        if (!Serial) {
+          eepromCommStatus = EEPROM_COMM_FAILED;
+        } else if (eepromCommCancelRequest) {
           Serial.write(CAN);
           Serial.write(CAN);
+          eepromInitialize();
           eepromCommStatus = EEPROM_COMM_NONE;
           menuSelected = 0;
         } else if (!eepromIsBusy()) {
@@ -1434,7 +1442,9 @@ void loop() {
         }
         break;
       case EEPROM_COMM_SEND_INIT:
-        if (eepromCommCancelRequest) {
+        if (!Serial) {
+          eepromCommStatus = EEPROM_COMM_FAILED;
+        } else if (eepromCommCancelRequest) {
           Serial.write(CAN);
           Serial.write(CAN);
           eepromCommStatus = EEPROM_COMM_NONE;
@@ -1460,46 +1470,52 @@ void loop() {
         }
         break;
       case EEPROM_COMM_SEND_SENDING:
-        while (Serial.availableForWrite() > 0) {
-          if (eepromCommBlockPos == 0) {
-            Serial.write(SOH);
-          } else if (eepromCommBlockPos == 1) {
-            Serial.write(eepromCommSeqId);
-          } else if (eepromCommBlockPos == 2) {
-            Serial.write(eepromCommSeqId ^ 0xff);
-          } else if (eepromCommBlockPos < 3 + 128) {
-            int outChar;
-            if (eepromCommPointer + eepromCommBlockPos - 3 < EEPROM.length()) {
-              outChar = EEPROM.read(eepromCommPointer + eepromCommBlockPos - 3);
-            } else {
-              outChar = 0x1a;
-            }
-            Serial.write(outChar);
-            if (eepromCommUseCrc) {
-              eepromCommCrc = crcUpdate(outChar, eepromCommCrc);
-            } else {
-              eepromCommCrc += outChar;
-            }
-          } else if (eepromCommBlockPos == 3 + 128) {
-            Serial.write((eepromCommCrc >> (eepromCommUseCrc ? 8 : 0)) & 0xff);
-          } else if(eepromCommBlockPos == 3 + 128 + 1) {
-            if(eepromCommUseCrc) {
-              Serial.write(eepromCommCrc & 0xff);
+        if (!Serial) {
+          eepromCommStatus = EEPROM_COMM_FAILED;
+        } else {
+          while (Serial.availableForWrite() > 0) {
+            if (eepromCommBlockPos == 0) {
+              Serial.write(SOH);
+            } else if (eepromCommBlockPos == 1) {
+              Serial.write(eepromCommSeqId);
+            } else if (eepromCommBlockPos == 2) {
+              Serial.write(eepromCommSeqId ^ 0xff);
+            } else if (eepromCommBlockPos < 3 + 128) {
+              int outChar;
+              if (eepromCommPointer + eepromCommBlockPos - 3 < EEPROM.length()) {
+                outChar = EEPROM.read(eepromCommPointer + eepromCommBlockPos - 3);
+              } else {
+                outChar = 0x1a;
+              }
+              Serial.write(outChar);
+              if (eepromCommUseCrc) {
+                eepromCommCrc = crcUpdate(outChar, eepromCommCrc);
+              } else {
+                eepromCommCrc += outChar;
+              }
+            } else if (eepromCommBlockPos == 3 + 128) {
+              Serial.write((eepromCommCrc >> (eepromCommUseCrc ? 8 : 0)) & 0xff);
+            } else if(eepromCommBlockPos == 3 + 128 + 1) {
+              if(eepromCommUseCrc) {
+                Serial.write(eepromCommCrc & 0xff);
+              } else {
+                eepromCommStartTime = millis();
+                eepromCommStatus = EEPROM_COMM_SEND_WAITING_ACK;
+                break;
+              }
             } else {
               eepromCommStartTime = millis();
               eepromCommStatus = EEPROM_COMM_SEND_WAITING_ACK;
               break;
             }
-          } else {
-            eepromCommStartTime = millis();
-            eepromCommStatus = EEPROM_COMM_SEND_WAITING_ACK;
-            break;
+            eepromCommBlockPos++;
           }
-          eepromCommBlockPos++;
         }
         break;
       case EEPROM_COMM_SEND_WAITING_ACK:
-        if (eepromCommCancelRequest) {
+        if (!Serial) {
+          eepromCommStatus = EEPROM_COMM_FAILED;
+        } else if (eepromCommCancelRequest) {
           Serial.write(CAN);
           Serial.write(CAN);
           eepromCommStatus = EEPROM_COMM_NONE;
