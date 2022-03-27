@@ -71,7 +71,44 @@ const uint8_t triangle[] PROGMEM = {
   0x7c, 0x38, 0x10
 };
 
+const uint16_t CRC_MAGIC = 0x53c3u; // CRC16 of "ab_td4"
+
+int availableBlockCount;
+uint8_t availableBlockList[256], availableBlockIsBlank[256 / 8];
+int freeBlockCount, usedBlockCount, reservedBlockCount;
+
 void eepromInitialize() {
+  availableBlockCount = 0;
+  freeBlockCount = 0;
+  usedBlockCount = 0;
+  reservedBlockCount = 0;
+  for (int i = 0; i < 256 / 8; i++) availableBlockIsBlank[i] = 0;
+  for (int i = 0; EEPROM_STORAGE_SPACE_START + 24 * i + 24 <= EEPROM.length(); i++) {
+    int blockStart = EEPROM_STORAGE_SPACE_START + 24 * i;
+    bool isBlank = true;
+    uint16_t dataCrc = CRC_MAGIC, recordedCrc;
+    for (int j = 0; j < 22; j++) {
+      int c = EEPROM.read(blockStart + j);
+      isBlank = isBlank && c == 0xff;
+      dataCrc = crcUpdate(c, dataCrc);
+    }
+    recordedCrc = EEPROM.read(blockStart + 22) << 8;
+    recordedCrc |= EEPROM.read(blockStart + 23) & 0xff;
+    isBlank = isBlank && recordedCrc == 0xffffu;
+    if (i < 256 && (isBlank || dataCrc == recordedCrc)) {
+      // blank or data for this application is stored
+      if (isBlank) {
+        freeBlockCount++;
+        availableBlockIsBlank[availableBlockCount / 8] |= 1 << (availableBlockCount % 8);
+      } else {
+        usedBlockCount++;
+      }
+      availableBlockList[availableBlockCount++] = i;
+    } else {
+      // data for other applications is stored
+      reservedBlockCount++;
+    }
+  }
 }
 
 bool eepromIsBusy() {
@@ -1175,13 +1212,25 @@ void drawMenu() {
       }
     }
   } else if (menuPage == 2) {
-    const int MENU_DATA_X = 6 * 10;
+    const int MENU_DATA_X = 6 * 9;
     ab.setCursor(MENU_DATA_X, SUBMENU_Y + 1 + 9 * 3);
-    ab.print(F("999 BLOCKS"));
+    if (freeBlockCount < 1000) ab.print(' ');
+    if (freeBlockCount < 100) ab.print(' ');
+    if (freeBlockCount < 10) ab.print(' ');
+    ab.print(freeBlockCount);
+    ab.print(F(" BLOCKS"));
     ab.setCursor(MENU_DATA_X, SUBMENU_Y + 1 + 9 * 4);
-    ab.print(F("999 BLOCKS"));
+    if (usedBlockCount < 1000) ab.print(' ');
+    if (usedBlockCount < 100) ab.print(' ');
+    if (usedBlockCount < 10) ab.print(' ');
+    ab.print(usedBlockCount);
+    ab.print(F(" BLOCKS"));
     ab.setCursor(MENU_DATA_X, SUBMENU_Y + 1 + 9 * 5);
-    ab.print(F("999 BLOCKS"));
+    if (reservedBlockCount < 1000) ab.print(' ');
+    if (reservedBlockCount < 100) ab.print(' ');
+    if (reservedBlockCount < 10) ab.print(' ');
+    ab.print(reservedBlockCount);
+    ab.print(F(" BLOCKS"));
     if (menuSelected) {
       if (menuSelect == 0) {
         ab.fillRect(25 - 5 - 2, 22 - 5 - 2, 2 + 5 + 6 * 13 + 4 + 2, 2 + 5 + 7 + 5 + 7 + 5 + 2, BLACK);
@@ -1262,6 +1311,7 @@ void setup() {
   ab.setFrameRate(100);
   beep.begin();
   Serial.begin(9600);
+  eepromInitialize();
 }
 
 void loop() {
