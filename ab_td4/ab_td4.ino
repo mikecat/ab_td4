@@ -1413,16 +1413,16 @@ void loop() {
         }
         break;
       case EEPROM_COMM_RECV_WRITING:
-        if (!Serial) {
-          eepromCommStatus = EEPROM_COMM_FAILED;
-        } else if (eepromCommCancelRequest) {
-          Serial.write(CAN);
-          Serial.write(CAN);
-          eepromInitialize();
-          eepromCommStatus = EEPROM_COMM_NONE;
-          menuSelected = 0;
-        } else if (!eepromIsBusy()) {
-          if (eepromCommBlockPos < 128) {
+        if (!eepromIsBusy()) {
+          if (!Serial) {
+            eepromCommStatus = EEPROM_COMM_FAILED;
+          } else if (eepromCommCancelRequest) {
+            Serial.write(CAN);
+            Serial.write(CAN);
+            eepromInitialize();
+            eepromCommStatus = EEPROM_COMM_NONE;
+            menuSelected = 0;
+          } else if (eepromCommBlockPos < 128) {
             if (eepromCommPointer < EEPROM.length()) {
               EEPROM.update(eepromCommPointer, eepromCommBuffer[3 + eepromCommBlockPos]);
               eepromCommPointer++;
